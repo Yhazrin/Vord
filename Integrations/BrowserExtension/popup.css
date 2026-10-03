@@ -1,0 +1,11 @@
+:root { color-scheme: light dark; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; }
+body { width: 300px; margin: 0; padding: 22px; color: #202020; background: #fafafa; line-height: 1.65; }
+h1 { margin: 0 0 16px; font: 26px Georgia, serif; }
+h1 span { font: 13px -apple-system, sans-serif; margin-left: 12px; }
+p { margin: 12px 0; }
+#status:not(:empty) { border-top: 1px solid #ddd; padding-top: 12px; }
+summary { cursor: pointer; font-weight: 600; padding-top: 12px; }
+ol { padding-left: 18px; }
+li { margin: 10px 0; }
+.footnote { font-size: 11px; color: #747474; margin-top: 18px; }
+@media (prefers-color-scheme: dark) { body { background: #202020; color: #eee; } #status:not(:empty) { border-color: #444; } }

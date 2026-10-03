@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>app.vord.capture</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>vord</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>快速添加到 Vord</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>addSelectedWord</string>
+			<key>NSPortName</key>
+			<string>Vord</string>
+			<key>NSRequiredContext</key>
+			<dict>
+				<key>NSTextScript</key>
+				<string>Latn</string>
+				<key>NSWordLimit</key>
+				<integer>8</integer>
+			</dict>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.utf8-plain-text</string>
+				<string>NSStringPboardType</string>
+			</array>
+			<key>NSServiceDescription</key>
+			<string>Look up an English selection and save it to Vord.</string>
+			<key>NSTimeout</key>
+			<string>5000</string>
+		</dict>
+	</array>
+</dict>
+</plist>

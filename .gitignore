@@ -1,0 +1,26 @@
+.DS_Store
+DerivedData/
+build/
+xcuserdata/
+*.xcuserstate
+
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/.idea/
+android/*.iml
+android/captures/
+
+SyncServer/__pycache__/
+*.pyc
+
+# Generated bundled dictionary and native integration outputs
+Vord/Resources/lexicon.sqlite
+Vord/Resources/VordSelectionBridge
+Vord/Resources/BrowserExtension/
+*.sqlite-wal
+*.sqlite-shm
+.env
+.env.*
+*pairing*.json

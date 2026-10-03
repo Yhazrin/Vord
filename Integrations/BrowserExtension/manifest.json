@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Vord · 快速添加",
+  "version": "1.0.0",
+  "description": "选中英文，通过右键菜单添加到本机 Vord 生词本。",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtmFP/NQwbQZLiSRcI6GzDAevXquUIYU0gF9+WC8eua7qbLCcEHTdbvN6vojBz5cZgKyJREQ1iKqeYcNqrN7DqeBLdQTnTt5VGi/ak/Zmw8H89I8iSl666591ps5tOvTrDKzA776q2uCQuFlAmRdtb690FK+pgqX2G+VlNmRCRImL7F0CV3z7NLAuJ2DQ3TnDnlfh8M+7N6BhQYppVyL1JBxkRKiCpupXOr08JxqdXoV1PwkQ6LFi2uj4WEZ+lBEIqN44TsVgOZLD5JJmGTU6lmWRvLrah7Cy6lB+2oz03u0Ez8rSG3S3s8pu2rA0A6EFjQTexU0GLa1/dStlJ/0UqwIDAQAB",
+  "permissions": [
+    "contextMenus",
+    "nativeMessaging",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Vord · 快速添加"
+  }
+}
