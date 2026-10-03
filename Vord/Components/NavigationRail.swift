@@ -58,6 +58,7 @@ struct NavigationRail: View {
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @State private var dueCount = 0
     @State private var iconStyle: NavigationIconStyle = .sculpted
+    @State private var iconSize: CGFloat = 18
     @State private var hoveredTab: AppTab?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -123,6 +124,7 @@ struct NavigationRail: View {
             .animation(AppMotion.navigation(reducedMotion), value: iconStyle)
             .task { await refresh() }
             .onReceive(dependencies.settings.$navigationIconStyle) { iconStyle = $0 }
+            .onReceive(dependencies.settings.$navigationIconSize) { iconSize = CGFloat($0) }
             .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in Task { await refresh() } }
             .onReceive(NotificationCenter.default.publisher(for: .vordLibraryDidChange)) { _ in Task { await refresh() } }
     }
@@ -133,8 +135,8 @@ struct NavigationRail: View {
     private func route(_ tab: AppTab) -> some View {
         Button { selection = tab } label: {
             HStack(spacing: iconStyle == .sculpted ? 6 : 8) {
-                NavigationIcon(tab: tab, style: iconStyle, selected: selection == tab, hovering: hoveredTab == tab)
-                if !compact { Text(tab.help).font(AppTypography.ui(size: 13, weight: selection == tab ? .semibold : .regular)).lineLimit(1) }
+                NavigationIcon(tab: tab, style: iconStyle, size: iconSize, selected: selection == tab, hovering: hoveredTab == tab)
+                if !compact { Text(tab.help).font(AppTypography.ui(size: 13, weight: selection == tab ? .semibold : .regular)).lineLimit(1).minimumScaleFactor(0.85) }
                 if !compact, tab == .review, dueCount > 0 {
                     Text(dueCount > 99 ? "99+" : "\(dueCount)").font(AppTypography.ui(size: 10, weight: .semibold)).monospacedDigit()
                         .contentTransition(.numericText(value: Double(dueCount)))
@@ -142,7 +144,7 @@ struct NavigationRail: View {
                 }
                 if !compact { Spacer(minLength: 0) }
             }.foregroundStyle(selection == tab ? AppColors.accent : AppColors.secondaryText)
-                .padding(.horizontal, compact ? 0 : 8).frame(maxWidth: .infinity).frame(height: iconStyle == .sculpted ? 40 : 36)
+                .padding(.horizontal, compact ? 0 : 8).frame(maxWidth: .infinity).frame(height: max(36, iconSize + 10))
                 .overlay(alignment: .topTrailing) {
                     if compact, tab == .review, dueCount > 0 {
                         Circle().fill(AppColors.primaryText).frame(width: 5, height: 5).padding(5)

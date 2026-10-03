@@ -2,7 +2,7 @@
 
 Asset: `Vord/Resources/navigation-icons-sculpted.png`.
 
-The built-in image generation tool derived this transparent atlas from the user-provided paper-and-graphite reference. It preserves the intended material and silhouettes; this is a reconstruction, not a claim of pixel-identical extraction. The app separates its eight bodies, removes alpha debris once, caches the results, and draws contact and cast shadows natively. The microphone keeps both its capsule and stand. Hover lifts by 1.1 points, selection by 0.45 points; Reduce Motion removes those movements. Sidebar icons are 26 points and Settings previews 22 points.
+The built-in image generation tool derived this transparent atlas from the user-provided paper-and-graphite reference. It preserves the intended material and silhouettes; this is a reconstruction, not a claim of pixel-identical extraction. The app separates its eight bodies, removes alpha debris once, caches the results, and draws contact and cast shadows natively. The microphone keeps both its capsule and stand. Hover lifts by 1.1 points, selection by 0.45 points; Reduce Motion removes those movements. Sidebar icons and Settings previews default to 18 points. Settings → Appearance → Icon size continuously adjusts both icon styles from 12 to 36 points, saves the value and offers a reset to 18 points. Navigation rows accommodate the chosen size.
 
 Selected asset prompt:
 

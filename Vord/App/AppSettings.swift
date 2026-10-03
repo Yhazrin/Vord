@@ -36,6 +36,8 @@ final class AppSettings: ObservableObject {
     @Published private(set) var clipboardCaptureEnabled: Bool
     @Published private(set) var floatingQuickAddEnabled: Bool
     @Published private(set) var navigationIconStyle: NavigationIconStyle
+    @Published private(set) var navigationIconSize: Double
+    static let navigationIconSizeRange = 12.0...36.0
     @Published private(set) var woodGrainEnabled: Bool
     @Published var hotKeyWarning: String?
     @Published var loginWarning: String?
@@ -60,6 +62,8 @@ final class AppSettings: ObservableObject {
         floatingQuickAddEnabled = defaults.object(forKey: Key.floatingQuickAdd) == nil
             ? true : defaults.bool(forKey: Key.floatingQuickAdd)
         navigationIconStyle = NavigationIconStyle(rawValue: defaults.string(forKey: Key.navigationIconStyle) ?? "") ?? .sculpted
+        let storedIconSize = defaults.object(forKey: Key.navigationIconSize) as? Double ?? 18
+        navigationIconSize = Self.clampedIconSize(storedIconSize)
         woodGrainEnabled = defaults.bool(forKey: Key.woodGrain)
         translation.select(id: provider)
     }
@@ -106,6 +110,15 @@ final class AppSettings: ObservableObject {
         defaults.set(style.rawValue, forKey: Key.navigationIconStyle)
     }
 
+    func setNavigationIconSize(_ size: Double) {
+        navigationIconSize = Self.clampedIconSize(size)
+        defaults.set(navigationIconSize, forKey: Key.navigationIconSize)
+    }
+
+    private static func clampedIconSize(_ size: Double) -> Double {
+        size.isFinite ? min(navigationIconSizeRange.upperBound, max(navigationIconSizeRange.lowerBound, size)) : 18
+    }
+
     func setWoodGrainEnabled(_ enabled: Bool) {
         woodGrainEnabled = enabled
         defaults.set(enabled, forKey: Key.woodGrain)
@@ -124,6 +137,7 @@ final class AppSettings: ObservableObject {
         static let clipboardCapture = "clipboardCaptureEnabled"
         static let floatingQuickAdd = "floatingQuickAddEnabled"
         static let navigationIconStyle = "navigationIconStyle"
+        static let navigationIconSize = "appearance.navigationIconSize"
         static let woodGrain = "appearance.woodGrain"
     }
 }

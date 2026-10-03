@@ -82,6 +82,19 @@ struct SettingsView: View {
                     RowDivider()
                     NavigationIconSettings(settings: settings)
                     RowDivider()
+                    ControlRow(title: "Icon size") {
+                        HStack(spacing: 10) {
+                            Slider(value: Binding(get: { settings.navigationIconSize }, set: { settings.setNavigationIconSize($0) }),
+                                   in: AppSettings.navigationIconSizeRange)
+                                .frame(width: 140)
+                                .accessibilityLabel("Sidebar icon size")
+                                .accessibilityValue("\(settings.navigationIconSize.formatted(.number.precision(.fractionLength(1)))) points")
+                            Text("\(settings.navigationIconSize.formatted(.number.precision(.fractionLength(1)))) pt")
+                                .font(AppTypography.caption).monospacedDigit().frame(width: 54, alignment: .trailing)
+                            ChromeIconButton(symbol: "arrow.counterclockwise", help: "Reset icon size to 18 pt") { settings.setNavigationIconSize(18) }
+                        }
+                    }
+                    RowDivider()
                     ControlRow(title: "Subtle wood grain") {
                         Toggle("Subtle wood grain", isOn: Binding(get: { settings.woodGrainEnabled }, set: { settings.setWoodGrainEnabled($0) }))
                             .toggleStyle(.switch).labelsHidden()

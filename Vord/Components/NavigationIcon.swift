@@ -16,7 +16,7 @@ enum NavigationIconStyle: String, CaseIterable, Identifiable, Sendable {
 struct NavigationIcon: View {
     var tab: AppTab
     var style: NavigationIconStyle
-    var size: CGFloat = 26
+    var size: CGFloat = 18
     var selected = false
     var hovering = false
     @Environment(\.colorScheme) private var colorScheme
@@ -42,8 +42,8 @@ struct NavigationIcon: View {
                     .offset(y: -lift)
             } else {
                 Image(systemName: tab.symbol)
-                    .font(AppTypography.ui(size: 15))
-                    .frame(width: style == .sculpted ? size : 20, height: size)
+                    .font(AppTypography.ui(size: size * 5 / 6))
+                    .frame(width: size, height: size)
             }
         }
         .accessibilityHidden(true)
@@ -197,7 +197,7 @@ struct NavigationIconSettings: View {
             HStack(spacing: 14) {
                 HStack(spacing: 6) {
                     ForEach([AppTab.today, .review, .library], id: \.self) { tab in
-                        NavigationIcon(tab: tab, style: settings.navigationIconStyle, size: 22)
+                        NavigationIcon(tab: tab, style: settings.navigationIconStyle, size: CGFloat(settings.navigationIconSize))
                     }
                 }
                 .foregroundStyle(AppColors.secondaryText)
