@@ -103,8 +103,11 @@ struct SettingsView: View {
                 ContentSurfaceBackground(woodGrain: settings.woodGrainEnabled)
                     .frame(height: 120)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(alignment: .center) { Text("Aa").font(AppTypography.ui(size: 28)).foregroundStyle(AppColors.primaryText) }
-                    .accessibilityLabel("Content background preview")
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10).fill(AppColors.surface).padding(18)
+                            .overlay { Text("Aa").font(AppTypography.ui(size: 28)).foregroundStyle(AppColors.primaryText) }
+                    }
+                    .accessibilityLabel("Window background preview with a plain content panel")
             case .learning:
                 settingsGroup(title: "Review") {
                     ControlRow(title: "Review direction") {

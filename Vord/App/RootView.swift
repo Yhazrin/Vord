@@ -3,6 +3,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var dependencies: AppDependencies
+    @EnvironmentObject private var settings: AppSettings
     @State private var tab: AppTab = .today
     @State private var contentExpanded = false
     @State private var isFullScreen = false
@@ -56,7 +57,7 @@ struct RootView: View {
         .environment(\.vordContentExpanded, hidden)
         .environment(\.vordLayout, layout)
         }
-        .background(AppColors.windowBackground)
+        .background { ContentSurfaceBackground(woodGrain: settings.woodGrainEnabled) }
         .background(WindowChrome(isFullScreen: $isFullScreen))
         .frame(minWidth: 720, minHeight: 520)
         // The traffic lights live above the rail; the content card uses its own outer inset.
