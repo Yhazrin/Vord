@@ -110,27 +110,32 @@ struct LibraryView: View {
                     }
                     .padding(.bottom, AppSpacing.xl)
                 }
+                .contentMargins(.trailing, scrollLane, for: .scrollContent)
+                .contentMargins(.trailing, 0, for: .scrollIndicators)
+                .scrollIndicators(.automatic)
                 .padding(.top, AppSpacing.xs)
             }
         }
         .frame(maxWidth: AppSpacing.library, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .modifier(PageInset(bottom: AppSpacing.lg))
+        .modifier(PageInset(top: 20, bottom: AppSpacing.lg))
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: AppSpacing.md) {
-                Text("Library").font(AppTypography.pageTitle).foregroundStyle(AppColors.primaryText)
-                Text(librarySubtitle).font(AppTypography.caption).foregroundStyle(AppColors.secondaryText)
-                Spacer(minLength: 0)
-                if let onImport {
-                    VordButton(title: "Import words", role: .secondary, action: onImport)
-                }
-            }
             ViewThatFits(in: .horizontal) {
-                scopeTabs
-                MenuSelect(name: "Collection", selection: $model.scope, choices: LibraryScope.allCases, label: { $0.rawValue })
+                HStack(spacing: AppSpacing.md) {
+                    scopeTabs
+                    wordCount.fixedSize()
+                    Spacer(minLength: AppSpacing.sm)
+                    importButton
+                }
+                HStack(spacing: AppSpacing.sm) {
+                    MenuSelect(name: "Collection", selection: $model.scope, choices: LibraryScope.allCases, label: { $0.rawValue })
+                    wordCount
+                    Spacer(minLength: 0)
+                    importButton
+                }
             }
             .onChange(of: model.scope) { _, _ in model.sortChanged() }
             ViewThatFits(in: .horizontal) {
@@ -155,9 +160,27 @@ struct LibraryView: View {
                 .font(AppTypography.ui(size: 11, weight: .medium))
                 .foregroundStyle(AppColors.tertiaryText)
                 .padding(.horizontal, AppSpacing.sm)
+                .padding(.trailing, scrollLane)
                 .padding(.top, AppSpacing.xs)
-                Hairline()
+                Hairline().padding(.trailing, scrollLane)
             }
+        }
+    }
+
+    /// Reserved track so an overlay or always-on scroller never covers Added.
+    private let scrollLane: CGFloat = 18
+
+    private var wordCount: some View {
+        Text(librarySubtitle)
+            .font(AppTypography.caption)
+            .foregroundStyle(AppColors.secondaryText)
+            .lineLimit(1)
+            .help(librarySubtitle)
+    }
+
+    @ViewBuilder private var importButton: some View {
+        if let onImport {
+            VordButton(title: "Import words", role: .secondary, action: onImport)
         }
     }
 

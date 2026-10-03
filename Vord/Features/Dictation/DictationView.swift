@@ -164,11 +164,10 @@ struct DictationView: View {
 
     private var setup: some View {
         PageScroll {
-            VStack(alignment: .leading, spacing: AppSpacing.xxl) {
-                PageHeader(
-                    title: "Dictation",
-                    subtitle: "Practice without changing review dates."
-                )
+            VStack(alignment: .leading, spacing: AppSpacing.lg) {
+                Text("Practice without changing review dates.")
+                    .font(AppTypography.caption)
+                    .foregroundStyle(AppColors.secondaryText)
 
                 ControlRow(title: "Collection") {
                     MenuSelect(name: "Tag", selection: $model.tag, choices: model.tags, label: { $0 })
@@ -247,11 +246,11 @@ struct DictationView: View {
     private var sessionBody: some View {
         if let question = model.current {
             VStack(spacing: AppSpacing.xl) {
-                VStack(alignment: .leading, spacing: AppSpacing.lg) {
-                    PageHeader(
-                        title: "Dictation",
-                        subtitle: "\(model.index + 1) of \(model.questions.count)"
-                    )
+                VStack(alignment: .leading, spacing: AppSpacing.md) {
+                    Text("\(model.index + 1) of \(model.questions.count)")
+                        .font(AppTypography.caption)
+                        .foregroundStyle(AppColors.secondaryText)
+                        .monospacedDigit()
                     StudyProgress(completed: model.index, total: model.questions.count)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -341,8 +340,6 @@ struct DictationView: View {
     private var summary: some View {
         PageScroll {
             VStack(alignment: .leading, spacing: AppSpacing.xl) {
-                PageHeader(title: "Dictation", subtitle: summarySubtitle)
-
                 StudyCompletion(title: "Round complete",
                     detail: model.missed.isEmpty ? "You recalled every word in this round." : "\(model.outcomes.count) words practiced. Revisit the missed words when you're ready.")
                 StudyProgress(completed: model.outcomes.count, total: model.outcomes.count)
@@ -390,10 +387,6 @@ struct DictationView: View {
                 }
             }
         }
-    }
-
-    private var summarySubtitle: String {
-        model.missed.isEmpty ? "All clear." : "A few to look at again."
     }
 
     private var isLast: Bool { model.index + 1 >= model.questions.count }

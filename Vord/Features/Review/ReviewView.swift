@@ -157,12 +157,11 @@ private struct ReviewSession: View {
 
     private var reviewStack: some View {
         VStack(alignment: .leading, spacing: 24) {
-                HStack {
-                    PageHeader(title: "Review")
-                    Spacer()
-                    SubtleButton(title: "Pause session", action: onExit)
-                }
                 if model.isLoading {
+                    HStack {
+                        Spacer()
+                        SubtleButton(title: "Pause session", action: onExit)
+                    }
                     ProgressView("Preparing your words…")
                 } else if model.isEmpty {
                     LearningCard {
@@ -177,19 +176,21 @@ private struct ReviewSession: View {
                         HStack { Spacer(); PrimaryButton(title: "Back to Today", action: onExit); Spacer() }
                     }
                 } else if let card = model.card {
-                    HStack {
-                        Text("\(model.completed) / \(model.total) cards completed").font(AppTypography.caption)
-                            .contentTransition(.numericText(value: Double(model.completed)))
-                            .animation(AppMotion.feedback(reducedMotion), value: model.completed)
-                        Spacer()
-                        if let rating = model.lastRating {
-                            HStack(spacing: 6) {
-                                if rating != .again { SuccessMark(size: 17).id(model.attempts) }
-                                Text(rating == .again ? "We'll revisit it." : "Review saved")
-                                    .font(AppTypography.caption).foregroundStyle(AppColors.secondaryText)
-                            }.id(model.attempts).modifier(MotionArrival())
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: AppSpacing.md) {
+                            sessionProgress
+                            Spacer(minLength: AppSpacing.sm)
+                            StatusPill(title: model.repeated ? "Relearning" : card.direction.title)
+                            SubtleButton(title: "Pause session", action: onExit)
                         }
-                        StatusPill(title: model.repeated ? "Relearning" : card.direction.title)
+                        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                            sessionProgress
+                            HStack {
+                                StatusPill(title: model.repeated ? "Relearning" : card.direction.title)
+                                Spacer()
+                                SubtleButton(title: "Pause session", action: onExit)
+                            }
+                        }
                     }
                     StudyProgress(completed: model.completed, total: model.total)
                     Spacer(minLength: AppSpacing.lg)
@@ -237,6 +238,23 @@ private struct ReviewSession: View {
                     if model.card == nil { QuietButton(title: "Try again") { Task { await model.load() } } }
                 }
             }
+    }
+
+    private var sessionProgress: some View {
+        HStack(spacing: AppSpacing.sm) {
+            Text("\(model.completed) / \(model.total)")
+                .font(AppTypography.caption).monospacedDigit()
+                .contentTransition(.numericText(value: Double(model.completed)))
+                .animation(AppMotion.feedback(reducedMotion), value: model.completed)
+                .accessibilityLabel("\(model.completed) of \(model.total) cards completed")
+            if let rating = model.lastRating {
+                HStack(spacing: 6) {
+                    if rating != .again { SuccessMark(size: 17).id(model.attempts) }
+                    Text(rating == .again ? "We'll revisit it." : "Review saved")
+                        .font(AppTypography.caption).foregroundStyle(AppColors.secondaryText)
+                }.id(model.attempts).modifier(MotionArrival())
+            }
+        }.fixedSize(horizontal: true, vertical: false)
     }
 
     @ViewBuilder

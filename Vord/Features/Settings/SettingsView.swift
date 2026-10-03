@@ -17,8 +17,6 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            PageHeader(title: "Settings")
-            Hairline()
             if layout.usesColumns {
                 HStack(alignment: .top, spacing: 28) {
                     categories.frame(width: 148)

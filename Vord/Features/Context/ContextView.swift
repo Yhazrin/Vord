@@ -32,13 +32,14 @@ struct ContextView: View {
     }
     var body: some View {
         PageScroll(width: 1100) {
-            VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 22) {
                 HStack(alignment: .center) {
-                    PageHeader(title: "Examples")
+                    Text(selected.isEmpty ? "Choose words from your library." : "\(selection.count) of 8 selected")
+                        .font(AppTypography.caption)
+                        .foregroundStyle(AppColors.secondaryText)
                     Spacer()
                     SubtleButton(title: "AI settings", action: onSettings)
                 }
-                Hairline()
                 if layout.usesColumns {
                 HStack(alignment: .top, spacing: 28) {
                     wordSelection.frame(width: 250)

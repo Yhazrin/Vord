@@ -143,7 +143,6 @@ struct AddView: View {
         GeometryReader { geometry in
             let wide = geometry.size.width - layout.pagePadding * 2 >= 760
             VStack(alignment: .leading, spacing: 20) {
-                PageHeader(title: "Add word")
                 FieldChrome(focused: focused, minHeight: 48) {
                     HStack(spacing: 12) {
                         CaptureInput(text: $model.query, focused: $focused) { Task { await save() } }

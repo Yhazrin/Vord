@@ -11,8 +11,16 @@ struct AgentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             ViewThatFits(in: .horizontal) {
-                HStack { header; Spacer(); importButton; sections.fixedSize() }
-                VStack(alignment: .leading, spacing: 12) { header; HStack { sections; Spacer(); importButton } }
+                HStack(spacing: 16) {
+                    sections.fixedSize()
+                    providerLine
+                    Spacer(minLength: 12)
+                    importButton
+                }
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack { sections; Spacer(); importButton }
+                    providerLine
+                }
             }
             if let profile = agent.profile {
                 HStack(spacing: 20) {
@@ -31,7 +39,7 @@ struct AgentView: View {
             }
         }
         .frame(maxWidth: AppSpacing.measure, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.horizontal, layout.pagePadding).padding(.top, 32).padding(.bottom, 24)
+        .padding(.horizontal, layout.pagePadding).padding(.top, 20).padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task { await agent.refresh() }
         .onAppear {
@@ -58,8 +66,11 @@ struct AgentView: View {
         QuietButton(title: "Import words") { showingImport = true }
             .disabled(agent.isThinking || agent.importingMessageID != nil)
     }
-    private var header: some View {
-        PageHeader(title: "Companion", subtitle: dependencies.ai.selected.map { "\($0.name) · \($0.modelID)" } ?? "Choose an AI service in Settings for conversation.")
+    private var providerLine: some View {
+        Text(dependencies.ai.selected.map { "\($0.name) · \($0.modelID)" } ?? "Choose an AI service in Settings")
+            .font(AppTypography.caption)
+            .foregroundStyle(AppColors.secondaryText)
+            .lineLimit(1)
     }
     private var sections: some View {
         ChoiceTabs(
