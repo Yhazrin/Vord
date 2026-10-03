@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 VORD_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VORD_APP="$VORD_ROOT/build/Build/Products/Release/Vord.app"
+VORD_APP="$VORD_ROOT/build/Build/Products/Release.noindex/Vord.app"
 if [[ ! -d "$VORD_APP" ]]; then
   echo 'Build the Release app first.' >&2
   exit 1
