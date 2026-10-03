@@ -7,6 +7,34 @@ final class LearningAgentTests: XCTestCase {
     }
     private func temporaryURL() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("assistant.json") }
 
+    @MainActor func testAgentProfileIncludesDictationAndLiveGoalWithoutChangingReviewState() async throws {
+        let repo = try repository(), now = Date()
+        let word = try await repo.upsert(.init(english: "stagnant", chinese: "停滞的"), now: now.addingTimeInterval(-86400))
+        let question = DictationQuestion(id: UUID(), entryID: word.id, prompt: "停滞的", expected: "stagnant", accepted: ["stagnant"], direction: .chineseToEnglish)
+        let practice = ExamPracticeRecord(ExamRecord(createdAt: now, mode: "Mixed", outcomes: [.init(question: question, attempt: "stagnent", correct: false)]))
+        var goal = 12
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let agent = LearningAgent(repository: repo, url: url, practice: { [practice] }, dailyPracticeGoal: { goal }) { _, _ in
+            XCTFail("Refreshing learning data must not send a paid AI request")
+            return AITextResponse(text: "unused", modelID: "fixture")
+        }
+        await agent.refresh()
+        let profile = try XCTUnwrap(agent.profile)
+        XCTAssertEqual(profile.practicedToday, 1)
+        XCTAssertEqual(profile.reviewedToday, 0)
+        let data = try XCTUnwrap(try profile.context(question: "今天练习了多少？").data(using: .utf8))
+        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let daily = try XCTUnwrap(parsed["dailyPractice"] as? [String: Any])
+        XCTAssertEqual(daily["distinctWordsToday"] as? Int, 1)
+        XCTAssertEqual(daily["remainingWords"] as? Int, 11)
+        goal = 5
+        await agent.refresh()
+        XCTAssertEqual(agent.profile?.dailyPracticeGoal, 5)
+        let snapshot = try await repo.exportSnapshot()
+        XCTAssertTrue(snapshot.reviewLogs.isEmpty)
+    }
+
     func testProfileUsesAllWordsButBoundsContextAndExcludesArchived() async throws {
         let repo = try repository(), now = Date()
         for index in 0..<30 { _ = try await repo.upsert(.init(english: "word\(index)", chinese: "词\(index)"), now: now) }

@@ -24,6 +24,8 @@ final class AppDependencies: ObservableObject {
     var openImportOnNextVisit = false
     lazy var agent = LearningAgent(repository: repository, scheduler: scheduler, dictionary: dictionary,
         providerName: { [weak self] in self?.ai.selected?.name ?? "AI" },
+        practice: { [weak self] in self?.history.practice ?? [] },
+        dailyPracticeGoal: { [weak self] in self?.settings.dailyPracticeGoal ?? 10 },
         generate: { [weak self] prompt, system in
             guard let self else { throw CancellationError() }
             return try await self.ai.generate(prompt: prompt, system: system)

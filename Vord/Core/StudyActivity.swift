@@ -12,8 +12,10 @@ struct StudyActivityDay: Identifiable, Equatable {
     var date: Date
     var added: Set<UUID> = []
     var reviewed: Set<UUID> = []
+    var practiced: Set<UUID> = []
     var id: Date { date }
-    var words: Set<UUID> { added.union(reviewed) }
+    var practicedWords: Set<UUID> { reviewed.union(practiced) }
+    var words: Set<UUID> { added.union(practicedWords) }
     var count: Int { words.count }
     var level: Int {
         switch count { case 0: return 0; case 1...3: return 1; case 4...9: return 2; case 10...19: return 3; default: return 4 }
@@ -24,7 +26,7 @@ struct StudyActivity {
     var days: [Date: StudyActivityDay] = [:]
     var calendar: Calendar
     var now: Date
-    init(snapshot: LibraryExport, now: Date = Date(), calendar: Calendar = .current) {
+    init(snapshot: LibraryExport, exams: [ExamRecord] = [], practice: [ExamPracticeRecord] = [], now: Date = Date(), calendar: Calendar = .current) {
         self.now = now; self.calendar = calendar
         let known = Set(snapshot.entries.map(\.id))
         for entry in snapshot.entries where entry.createdAt <= now && !entry.english.trimmed.isEmpty && !entry.chinese.trimmed.isEmpty {
@@ -37,6 +39,35 @@ struct StudyActivity {
             var day = days[date] ?? StudyActivityDay(date: date)
             day.reviewed.insert(log.entryID); days[date] = day
         }
+        // Older exam backups have no entry IDs. Match only unambiguous English
+        // headwords, never a translated definition or a question's random UUID.
+        let byEnglish = Dictionary(grouping: snapshot.entries, by: { $0.english.trimmed.lowercased() })
+        for exam in practice + exams.map(ExamPracticeRecord.init) where exam.createdAt <= now {
+            let date = calendar.startOfDay(for: exam.createdAt)
+            for word in exam.words {
+                let matches = byEnglish[word.english] ?? []
+                let id = word.entryID ?? (matches.count == 1 ? matches.first?.id : nil)
+                guard let id, known.contains(id) else { continue }
+                var day = days[date] ?? StudyActivityDay(date: date)
+                day.practiced.insert(id); days[date] = day
+            }
+        }
+    }
+    /// Today's unfinished goal does not erase a run that ended yesterday.
+    /// Calendar arithmetic keeps this correct through DST and local midnight.
+    var practiceStreak: Int {
+        var cursor = calendar.startOfDay(for: now)
+        if day(cursor).practicedWords.isEmpty {
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { return 0 }
+            cursor = previous
+        }
+        var count = 0
+        while !day(cursor).practicedWords.isEmpty {
+            count += 1
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor), previous < cursor else { break }
+            cursor = previous
+        }
+        return count
     }
     func day(_ date: Date) -> StudyActivityDay {
         let date = calendar.startOfDay(for: date)

@@ -30,6 +30,7 @@ enum DictationDirection: String, Sendable, Equatable, Codable {
 
 struct DictationQuestion: Identifiable, Equatable, Sendable, Codable {
     var id: UUID
+    var entryID: UUID? = nil
     var prompt: String
     var phonetic: String?
     var expected: String
@@ -54,6 +55,7 @@ enum DictationMatching {
             let direction = direction(for: mode, random: &random)
             return DictationQuestion(
                 id: UUID(),
+                entryID: entry.id,
                 prompt: prompt(entry, direction),
                 phonetic: direction == .englishToChinese ? entry.phonetic?.trimmed.nilIfEmpty : nil,
                 expected: displayAnswer(entry, direction),

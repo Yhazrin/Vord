@@ -44,7 +44,7 @@ struct StudyCalendar: View {
             }
         }
         .animation(reducedMotion ? nil : AppMotion.quick, value: period)
-        .help("Each square counts different words added or reviewed that day. Repeat reviews count once.")
+        .help("Each square counts different words added, reviewed or practiced in completed dictation rounds that day. Repeated words count once.")
     }
     private var title: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -111,14 +111,14 @@ struct StudyCalendar: View {
                     if selectedDate == date { RoundedRectangle(cornerRadius: size < 20 ? 2 : 5).stroke(AppColors.primaryText, lineWidth: 1.5).padding(-2) }
                 }.frame(width: size, height: size)
         }.buttonStyle(.plain).disabled(future)
-            .help(date.formatted(date: .complete, time: .omitted) + " · \(day.count) words · \(day.added.count) added · \(day.reviewed.count) reviewed")
+            .help(date.formatted(date: .complete, time: .omitted) + " · \(day.count) words · \(day.added.count) added · \(day.reviewed.count) reviewed · \(day.practiced.count) in dictation")
             .accessibilityLabel(date.formatted(date: .complete, time: .omitted) + ", \(day.count) words studied")
     }
     private var detail: some View {
         Group {
             if let selectedDate {
                 let day = activity.day(selectedDate)
-                Text(selectedDate.formatted(.dateTime.month(.abbreviated).day()) + " · \(day.count) words · \(day.added.count) added · \(day.reviewed.count) reviewed")
+                Text(selectedDate.formatted(.dateTime.month(.abbreviated).day()) + " · \(day.count) words · \(day.added.count) added · \(day.reviewed.count) reviewed · \(day.practiced.count) in dictation")
             } else {
                 Text("\(activity.uniqueWords(in: interval)) words studied")
             }

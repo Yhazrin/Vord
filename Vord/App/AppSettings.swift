@@ -31,6 +31,7 @@ final class AppSettings: ObservableObject {
     @Published private(set) var reviewMode: ReviewMode
     @Published private(set) var dictationMode: DictationMode
     @Published private(set) var dictationCount: Int
+    @Published private(set) var dailyPracticeGoal: Int
     @Published private(set) var translationProviderID: String
     @Published private(set) var shortcut: QuickAddShortcut
     @Published private(set) var clipboardCaptureEnabled: Bool
@@ -56,6 +57,8 @@ final class AppSettings: ObservableObject {
         reviewMode = mode
         dictationMode = dictation
         dictationCount = storedCount == 0 ? 10 : min(max(storedCount, 1), 100)
+        dailyPracticeGoal = defaults.object(forKey: Key.dailyPracticeGoal) == nil
+            ? 10 : min(max(defaults.integer(forKey: Key.dailyPracticeGoal), 1), 100)
         translationProviderID = provider
         shortcut = QuickAddShortcut.from(id: shortcutID)
         clipboardCaptureEnabled = defaults.bool(forKey: Key.clipboardCapture)
@@ -82,6 +85,11 @@ final class AppSettings: ObservableObject {
         let clamped = min(max(count, 1), 100)
         dictationCount = clamped
         defaults.set(clamped, forKey: Key.dictationCount)
+    }
+
+    func setDailyPracticeGoal(_ count: Int) {
+        dailyPracticeGoal = min(max(count, 1), 100)
+        defaults.set(dailyPracticeGoal, forKey: Key.dailyPracticeGoal)
     }
 
     func setTranslationProvider(_ id: String) {
@@ -132,6 +140,7 @@ final class AppSettings: ObservableObject {
         static let reviewMode = "reviewMode"
         static let dictationMode = "dictationMode"
         static let dictationCount = "dictationCount"
+        static let dailyPracticeGoal = "learning.dailyPracticeGoal"
         static let provider = "translationProviderID"
         static let shortcut = "quickAddShortcut"
         static let clipboardCapture = "clipboardCaptureEnabled"

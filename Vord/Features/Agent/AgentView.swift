@@ -4,6 +4,8 @@ struct AgentView: View {
     @ObservedObject var agent: LearningAgent
     var onStartPlan: ([UUID]) -> Void
     @EnvironmentObject private var dependencies: AppDependencies
+    @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var history: LearningHistory
     @Environment(\.vordLayout) private var layout
     @State private var section = "Conversation"
     @State private var showingImport = false
@@ -39,7 +41,7 @@ struct AgentView: View {
             }
         }
         .frame(maxWidth: AppSpacing.measure, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.horizontal, layout.pagePadding).padding(.top, 20).padding(.bottom, 24)
+        .modifier(PageInset(top: 20, bottom: AppSpacing.lg))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task { await agent.refresh() }
         .onAppear {
@@ -61,6 +63,8 @@ struct AgentView: View {
             Task { await agent.refresh() }
         }
         .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in Task { await agent.refresh() } }
+        .onReceive(history.$practice.dropFirst()) { _ in Task { await agent.refresh() } }
+        .onChange(of: settings.dailyPracticeGoal) { _, _ in Task { await agent.refresh() } }
     }
     private var importButton: some View {
         QuietButton(title: "Import words") { showingImport = true }

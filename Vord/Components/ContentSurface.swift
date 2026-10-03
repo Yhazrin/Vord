@@ -49,7 +49,7 @@ struct PageInset: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .padding(.top, top + (contentExpanded ? 12 : 0))
+            .padding(.top, contentExpanded ? max(top, AppSpacing.chromeClearance + AppSpacing.sm + AppSpacing.xs) : top)
             .padding(.bottom, bottom)
             .padding(.horizontal, layout.pagePadding)
     }

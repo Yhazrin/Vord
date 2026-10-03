@@ -28,7 +28,7 @@ struct SettingsView: View {
             }
         }
         .frame(maxWidth: AppSpacing.measure, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.horizontal, layout.pagePadding).padding(.top, 32).padding(.bottom, 24)
+        .modifier(PageInset(top: AppSpacing.xl, bottom: AppSpacing.lg))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task {
             dictionaryCount = dependencies.dictionary.count
@@ -107,6 +107,15 @@ struct SettingsView: View {
                     }
                     .accessibilityLabel("Window background preview with a plain content panel")
             case .learning:
+                settingsGroup(title: "Daily practice") {
+                    ControlRow(title: "Words per day", detail: "Different words answered in review or dictation.") {
+                        HStack(spacing: AppSpacing.sm) {
+                            Text("\(settings.dailyPracticeGoal)").font(AppTypography.caption).monospacedDigit().frame(width: 30, alignment: .trailing)
+                            Stepper("Daily practice goal", value: Binding(get: { settings.dailyPracticeGoal }, set: { settings.setDailyPracticeGoal($0) }), in: 1...100)
+                                .labelsHidden()
+                        }
+                    }
+                }
                 settingsGroup(title: "Review") {
                     ControlRow(title: "Review direction") {
                         MenuSelect(name: "Direction", selection: modeBinding, choices: ReviewMode.allCases, label: { $0.title })

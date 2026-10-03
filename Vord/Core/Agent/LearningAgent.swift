@@ -25,15 +25,19 @@ final class LearningAgent: ObservableObject {
     private let repository: any VocabularyRepository
     private let generate: Generate
     private let providerName: () -> String
+    private let practice: () -> [ExamPracticeRecord]
+    private let dailyPracticeGoal: () -> Int
     private let dictionary: DictionaryStore?
     private let url: URL
     private var request: Task<Void, Never>?
     private struct Saved: Codable { var messages: [AgentMessage]; var plan: StudyPlan? }
 
     init(repository: any VocabularyRepository, scheduler: any ReviewScheduling = SimpleScheduler(),
-         url: URL? = nil, dictionary: DictionaryStore? = nil, providerName: @escaping () -> String = { "AI" }, generate: @escaping Generate) {
+         url: URL? = nil, dictionary: DictionaryStore? = nil, providerName: @escaping () -> String = { "AI" },
+         practice: @escaping () -> [ExamPracticeRecord] = { [] }, dailyPracticeGoal: @escaping () -> Int = { 10 }, generate: @escaping Generate) {
         self.repository = repository; self.generate = generate; self.providerName = providerName
         self.dictionary = dictionary
+        self.practice = practice; self.dailyPracticeGoal = dailyPracticeGoal
         self.quiz = IslandQuizModel(repository: repository, scheduler: scheduler)
         self.url = url ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Vord/assistant.json")
         if FileManager.default.fileExists(atPath: self.url.path) {
@@ -44,7 +48,7 @@ final class LearningAgent: ObservableObject {
         }
     }
     func refresh() async {
-        do { profile = LearningProfile(snapshot: try await repository.exportSnapshot()) }
+        do { profile = LearningProfile(snapshot: try await repository.exportSnapshot(), practice: practice(), dailyPracticeGoal: dailyPracticeGoal()) }
         catch { self.error = error.localizedDescription }
     }
     func send(_ question: String) {
@@ -59,7 +63,7 @@ final class LearningAgent: ObservableObject {
             defer { self.isThinking = false; self.request = nil }
             do {
                 let snapshot = try await repository.exportSnapshot()
-                let profile = LearningProfile(snapshot: snapshot)
+                let profile = LearningProfile(snapshot: snapshot, practice: practice(), dailyPracticeGoal: dailyPracticeGoal())
                 self.profile = profile
                 let context = try profile.context(question: text, focusedEntryID: quiz.entry?.id)
                 let history = messages.dropLast().suffix(7).map { ["role": $0.role.rawValue, "text": String($0.text.prefix(8000))] }

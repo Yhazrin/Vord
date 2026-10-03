@@ -16,7 +16,7 @@ final class TodayViewModel: ObservableObject {
         default: return "Good evening."
         }
     }
-    func load(_ repository: any VocabularyRepository) async {
+    func load(_ repository: any VocabularyRepository, practice: [ExamPracticeRecord] = []) async {
         do {
             let now = Date()
             summary = try await repository.todaySummary(now: now)
@@ -26,7 +26,7 @@ final class TodayViewModel: ObservableObject {
             totalWords = activeIDs.count
             nextDue = snapshot.reviewStates.filter { activeIDs.contains($0.entryID) }
                 .flatMap(\.directions).map(\.dueAt).filter { $0 > now }.min()
-            activity = StudyActivity(snapshot: snapshot, now: now)
+            activity = StudyActivity(snapshot: snapshot, practice: practice, now: now)
             error = nil
         } catch { self.error = error.localizedDescription }
     }
@@ -34,6 +34,8 @@ final class TodayViewModel: ObservableObject {
 
 struct TodayView: View {
     @EnvironmentObject private var dependencies: AppDependencies
+    @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var history: LearningHistory
     var onStartReview: () -> Void
     var onNavigate: (AppTab) -> Void
     @StateObject private var model = TodayViewModel()
@@ -47,6 +49,7 @@ struct TodayView: View {
                 dateRow
                 overview
                 Hairline()
+                dailyPractice
                 if let activity = model.activity { StudyCalendar(activity: activity) }
                 Hairline()
                 libraryBand
@@ -58,13 +61,58 @@ struct TodayView: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .modifier(PageInset(top: 20, bottom: AppSpacing.lg))
         }
-        .task { await model.load(dependencies.repository) }
-        .onReceive(NotificationCenter.default.publisher(for: .vordLibraryDidChange)) { _ in Task { await model.load(dependencies.repository) } }
-        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in Task { await model.load(dependencies.repository) } }
+        .task { await model.load(dependencies.repository, practice: history.practice) }
+        .onReceive(NotificationCenter.default.publisher(for: .vordLibraryDidChange)) { _ in reload() }
+        .onReceive(history.$practice.dropFirst()) { _ in reload() }
+        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in reload() }
         .sheet(item: $selectedEntry) { entry in
             WordDetailView(entryID: entry.id) { selectedEntry = nil }
                 .environmentObject(dependencies).frame(width: 900, height: 650)
         }
+    }
+
+    private func reload() {
+        Task { await model.load(dependencies.repository, practice: history.practice) }
+    }
+
+    private var dailyPractice: some View {
+        let completed = model.activity?.day(model.activity?.now ?? Date()).practicedWords.count ?? 0
+        let goal = settings.dailyPracticeGoal
+        let reached = completed >= goal
+        return VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: AppSpacing.md) {
+                    practiceStatus(completed: completed, goal: goal)
+                    Spacer(minLength: AppSpacing.sm)
+                    if let streak = model.activity?.practiceStreak, streak > 1 {
+                        Text("\(streak)-day streak").font(AppTypography.caption).foregroundStyle(AppColors.secondaryText)
+                    }
+                    QuietButton(title: reached ? "Keep practicing" : "Practice") {
+                        if model.summary.dueCount > 0 { onStartReview() } else { onNavigate(.dictation) }
+                    }
+                }
+                VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                    practiceStatus(completed: completed, goal: goal)
+                    QuietButton(title: reached ? "Keep practicing" : "Practice") {
+                        if model.summary.dueCount > 0 { onStartReview() } else { onNavigate(.dictation) }
+                    }
+                }
+            }
+            StudyProgress(completed: completed, total: goal)
+                .accessibilityLabel("Daily practice goal")
+        }
+        .help("Different words answered in review or completed dictation rounds. Adding words and skipping questions do not count toward the goal.")
+    }
+
+    private func practiceStatus(completed: Int, goal: Int) -> some View {
+        HStack(spacing: AppSpacing.sm) {
+            if completed >= goal { SuccessMark(size: 18) }
+            Text(completed >= goal ? "Daily goal reached" : "Daily practice").font(AppTypography.headline)
+            Text("\(completed) / \(goal) words")
+                .font(AppTypography.caption).monospacedDigit().foregroundStyle(AppColors.secondaryText)
+                .contentTransition(.numericText(value: Double(completed)))
+                .animation(AppMotion.feedback(reducedMotion), value: completed)
+        }.fixedSize(horizontal: true, vertical: false)
     }
     private var dateRow: some View {
         HStack(alignment: .center) {

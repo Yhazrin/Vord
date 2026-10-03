@@ -50,4 +50,82 @@ final class StudyActivityTests: XCTestCase {
         XCTAssertEqual(activity.day(date(2026, 10, 5)).count, 0)
         XCTAssertEqual(activity.dates(in: activity.interval(.week, anchor: now)).count, 7)
     }
+
+    func testPracticeGoalDeduplicatesReviewAndDictationAndExcludesAddsSkipsAndFuture() {
+        let now = date(2026, 10, 3)
+        let reviewed = entry(date(2026, 10, 1)), practiced = entry(date(2026, 10, 1)), skipped = entry(now)
+        func outcome(_ word: VocabularyEntry, attempt: String) -> DictationOutcome {
+            .init(question: .init(id: UUID(), entryID: word.id, prompt: "词", expected: word.english,
+                                 accepted: [word.english], direction: .chineseToEnglish), attempt: attempt, correct: false)
+        }
+        let exams = [ExamRecord(createdAt: now, mode: "Mixed", outcomes: [
+            outcome(reviewed, attempt: "wrong"), outcome(practiced, attempt: "wrong"),
+            outcome(practiced, attempt: "wrong again"), outcome(skipped, attempt: "  ")
+        ]), ExamRecord(createdAt: date(2026, 10, 5), mode: "Mixed", outcomes: [outcome(skipped, attempt: "word")])]
+        let snapshot = LibraryExport(schemaVersion: 1, entries: [reviewed, practiced, skipped], reviewStates: [],
+                                    reviewLogs: [log(reviewed.id, at: now)])
+        let activity = StudyActivity(snapshot: snapshot, exams: exams, now: now, calendar: calendar)
+        XCTAssertEqual(activity.day(now).practicedWords, Set([reviewed.id, practiced.id]))
+        XCTAssertEqual(activity.day(now).count, 3)
+        XCTAssertEqual(activity.day(date(2026, 10, 5)).count, 0)
+    }
+
+    func testOldExamBackupsWithoutEntryIDsStillDecodeAndMatchEnglishOnly() throws {
+        let now = date(2026, 10, 3)
+        var word = entry(date(2026, 10, 1)); word.english = "stagnant"
+        let question = DictationQuestion(id: UUID(), prompt: "停滞的", expected: "STAGNANT", accepted: ["stagnant"], direction: .chineseToEnglish)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(question)) as? [String: Any])
+        object.removeValue(forKey: "entryID")
+        let decoded = try JSONDecoder().decode(DictationQuestion.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertNil(decoded.entryID)
+        let exam = ExamRecord(createdAt: now, mode: "Chinese → English", outcomes: [.init(question: decoded, attempt: "stagnent", correct: false)])
+        let snapshot = LibraryExport(schemaVersion: 1, entries: [word], reviewStates: [], reviewLogs: [])
+        XCTAssertEqual(StudyActivity(snapshot: snapshot, exams: [exam], now: now, calendar: calendar).day(now).practicedWords, [word.id])
+    }
+
+    func testPracticeStreakAcrossDSTAndUnfinishedToday() {
+        let now = date(2026, 3, 9), word = entry(date(2026, 3, 1))
+        var snapshot = LibraryExport(schemaVersion: 1, entries: [word], reviewStates: [],
+                                    reviewLogs: [log(word.id, at: date(2026, 3, 7)), log(word.id, at: date(2026, 3, 8))])
+        XCTAssertEqual(StudyActivity(snapshot: snapshot, now: now, calendar: calendar).practiceStreak, 2)
+        snapshot.reviewLogs.append(log(word.id, at: now))
+        XCTAssertEqual(StudyActivity(snapshot: snapshot, now: now, calendar: calendar).practiceStreak, 3)
+        XCTAssertEqual(StudyActivity(snapshot: snapshot, now: date(2026, 3, 11), calendar: calendar).practiceStreak, 0)
+        let onlyAdds = LibraryExport(schemaVersion: 1, entries: [entry(now)], reviewStates: [], reviewLogs: [])
+        XCTAssertEqual(StudyActivity(snapshot: onlyAdds, now: now, calendar: calendar).practiceStreak, 0)
+    }
+
+    @MainActor func testDailyPracticeGoalPersistsAndClampsInIsolatedDefaults() throws {
+        let suite = "VordTests.daily-goal.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let translation = TranslationService(selectedID: "local")
+        let settings = AppSettings(defaults: defaults, translation: translation)
+        XCTAssertEqual(settings.dailyPracticeGoal, 10)
+        settings.setDailyPracticeGoal(24)
+        XCTAssertEqual(AppSettings(defaults: defaults, translation: translation).dailyPracticeGoal, 24)
+        settings.setDailyPracticeGoal(0)
+        XCTAssertEqual(settings.dailyPracticeGoal, 1)
+        settings.setDailyPracticeGoal(1000)
+        XCTAssertEqual(settings.dailyPracticeGoal, 100)
+    }
+
+    @MainActor func testPracticeEvidenceSurvivesExamHistoryLimitAndReopening() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("history.json")
+        let history = LearningHistory(url: url), now = date(2026, 10, 3)
+        let words = (0..<101).map { _ in entry(date(2026, 10, 1)) }
+        for word in words {
+            let question = DictationQuestion(id: UUID(), entryID: word.id, prompt: "词", expected: word.english,
+                                             accepted: [word.english], direction: .chineseToEnglish)
+            try history.append(ExamRecord(createdAt: now, mode: "Mixed", outcomes: [.init(question: question, attempt: "wrong", correct: false)]))
+        }
+        let reopened = LearningHistory(url: url)
+        XCTAssertEqual(reopened.exams.count, 100)
+        XCTAssertEqual(reopened.practice.count, 101)
+        let snapshot = LibraryExport(schemaVersion: 1, entries: words, reviewStates: [], reviewLogs: [])
+        let activity = StudyActivity(snapshot: snapshot, practice: reopened.practice, now: now, calendar: calendar)
+        XCTAssertEqual(activity.day(now).practicedWords.count, 101)
+    }
 }

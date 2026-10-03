@@ -7,16 +7,23 @@ struct LearningProfile: Sendable {
     let entries: [VocabularyEntry]
     let states: [UUID: ReviewState]
     let activeIDs: Set<UUID>
+    let practicedToday: Int
+    let practiceStreak: Int
+    let dailyPracticeGoal: Int
 
-    init(snapshot: LibraryExport, now: Date = Date(), calendar: Calendar = .current) {
+    init(snapshot: LibraryExport, practice: [ExamPracticeRecord] = [], dailyPracticeGoal: Int = 10, now: Date = Date(), calendar: Calendar = .current) {
         self.snapshot = snapshot; self.now = now; self.calendar = calendar
         entries = snapshot.entries.filter { !$0.archived && DictationMatching.isEligible($0) }
         states = Dictionary(snapshot.reviewStates.map { ($0.entryID, $0) }, uniquingKeysWith: { _, latest in latest })
         activeIDs = Set(entries.map(\.id))
+        let activity = StudyActivity(snapshot: snapshot, practice: practice, now: now, calendar: calendar)
+        practicedToday = activity.day(now).practicedWords.count
+        practiceStreak = activity.practiceStreak
+        self.dailyPracticeGoal = min(100, max(1, dailyPracticeGoal))
     }
     var dueWords: Int { entries.filter { dueDate($0.id) <= now }.count }
     var dueDirections: Int { snapshot.reviewStates.filter { activeIDs.contains($0.entryID) }.flatMap(\.directions).filter { $0.dueAt <= now }.count }
-    var reviewedToday: Int { Set(snapshot.reviewLogs.filter { activeIDs.contains($0.entryID) && calendar.isDate($0.reviewedAt, inSameDayAs: now) }.map(\.entryID)).count }
+    var reviewedToday: Int { Set(snapshot.reviewLogs.filter { activeIDs.contains($0.entryID) && $0.reviewedAt <= now && calendar.isDate($0.reviewedAt, inSameDayAs: now) }.map(\.entryID)).count }
     var weakWords: [VocabularyEntry] {
         entries.filter { (states[$0.id]?.directions.reduce(0) { $0 + $1.incorrectCount } ?? 0) > 0 }
             .sorted { weakness($0.id) > weakness($1.id) }
@@ -59,12 +66,15 @@ struct LearningProfile: Sendable {
                   "lastReviewedAt": state.lastReviewedAt.map { iso.string(from: $0) } ?? "never"] as [String: Any]
              }] as [String: Any]
         }
-        let recentLogs = Array(snapshot.reviewLogs.filter { activeIDs.contains($0.entryID) }.sorted { $0.reviewedAt > $1.reviewedAt }.prefix(30))
+        let recentLogs = Array(snapshot.reviewLogs.filter { activeIDs.contains($0.entryID) && $0.reviewedAt <= now }.sorted { $0.reviewedAt > $1.reviewedAt }.prefix(30))
         let data: [String: Any] = [
             "observedAt": iso.string(from: now), "timeZone": calendar.timeZone.identifier,
             "activeWords": entries.count, "dueWords": dueWords, "dueDirections": dueDirections,
             "weakWords": weakWords.count, "reviewedWordsToday": reviewedToday,
-            "totalReviewAnswers": snapshot.reviewLogs.filter { activeIDs.contains($0.entryID) }.count,
+            "totalReviewAnswers": snapshot.reviewLogs.filter { activeIDs.contains($0.entryID) && $0.reviewedAt <= now }.count,
+            "dailyPractice": ["distinctWordsToday": practicedToday, "goal": dailyPracticeGoal,
+                              "remainingWords": max(0, dailyPracticeGoal - practicedToday), "streakDays": practiceStreak,
+                              "countingRule": "Review and answered questions in completed dictation rounds; each word counts once. Added words and skipped questions do not count."],
             "sampledWords": words, "sampleLimit": 24,
             "recentAnswers": recentLogs.map { ["entryID": $0.entryID.uuidString, "direction": $0.direction.rawValue,
                                                  "rating": $0.rating.rawValue, "at": iso.string(from: $0.reviewedAt)] }
