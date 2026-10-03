@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Stationary grain follows the panel's neutral colour; it never covers content.
+/// Fixed, neutral fibres give the panel texture without changing its base colour.
 struct ContentSurfaceBackground: View {
     var woodGrain: Bool
     @Environment(\.colorScheme) private var colorScheme
@@ -11,27 +11,45 @@ struct ContentSurfaceBackground: View {
                 Canvas(opaque: false, rendersAsynchronously: true) { context, size in
                     let dark = colorScheme == .dark
                     let ink = dark ? Color.white : Color.black
-                    let highlight = dark ? Color.black : Color.white
-                    // Fixed seeds and panel-space coordinates keep the texture still
-                    // when navigating, scrolling or resizing. No repeating bitmap seams.
-                    for index in -5...Int(size.height / 4.8 + 5) {
-                        let seed = Double(index + 1007)
-                        let variation = fraction(sin(seed * 127.1) * 43758.5453)
-                        let phase = seed * 1.618
-                        let baseline = Double(index) * 4.8 + variation * 2
-                        var path = Path()
-                        let points = Int(size.width / 18) + 2
-                        for point in 0...points {
-                            let x = Double(point) * 18
-                            let drift = sin(x / (120 + variation * 130) + phase) * (1.2 + variation * 2.8)
-                                + sin(x / 49 + phase * 0.7) * 0.38
-                            let position = CGPoint(x: x, y: baseline + drift)
-                            if point == 0 { path.move(to: position) } else { path.addLine(to: position) }
+                    let light = dark ? Color.black : Color.white
+                    // The seed belongs to the panel, never to a redraw. Scrolling
+                    // and navigation do not regenerate or animate the grain.
+                    for index in -5...Int(size.height / 3.5 + 5) {
+                        let baseline = Double(index) * 3.5 + noise(index, 1) * 2.7
+                        let amplitude = 0.45 + noise(index, 2) * 1.8
+                        let phase = noise(index, 3) * .pi * 2
+                        let wavelength = 70 + noise(index, 4) * 130
+                        let width = 0.35 + noise(index, 5) * 0.35
+                        let opacity = (dark ? 0.045 : 0.065) + noise(index, 6) * (dark ? 0.035 : 0.050)
+                        var cursor = -30.0
+                        var segment = 0
+                        while cursor < size.width {
+                            let salt = segment * 7
+                            // Some fibres span the panel; most fade into small,
+                            // irregular runs like old, finely sanded timber.
+                            let length = noise(index, 7) > 0.84 ? Double(size.width) + 60 : 34 + noise(index, 20 + salt) * 210
+                            let end = min(Double(size.width) + 20, cursor + length)
+                            var path = Path()
+                            let samples = max(2, Int((end - cursor) / 9))
+                            for point in 0...samples {
+                                let x = cursor + (end - cursor) * Double(point) / Double(samples)
+                                let sharedDrift = sin(x / 185) * 2.4 + sin(x / 67 + 0.4) * 0.65
+                                let fineDrift = sin(x / wavelength + phase) * amplitude + sin(x / 23 + phase) * 0.16
+                                let position = CGPoint(x: x, y: baseline + sharedDrift + fineDrift)
+                                if point == 0 { path.move(to: position) } else { path.addLine(to: position) }
+                            }
+                            let fade = Gradient(stops: [
+                                .init(color: ink.opacity(0), location: 0),
+                                .init(color: ink.opacity(opacity), location: 0.10),
+                                .init(color: ink.opacity(opacity * 0.72), location: 0.68),
+                                .init(color: ink.opacity(0), location: 1)
+                            ])
+                            context.stroke(path, with: .linearGradient(fade, startPoint: CGPoint(x: cursor, y: baseline), endPoint: CGPoint(x: end, y: baseline)),
+                                           style: StrokeStyle(lineWidth: width, lineCap: .round))
+                            context.stroke(path.offsetBy(dx: 0, dy: 0.8), with: .color(light.opacity(dark ? 0.035 : 0.24)), lineWidth: 0.35)
+                            cursor = end + 6 + noise(index, 21 + salt) * 46
+                            segment += 1
                         }
-                        context.stroke(path, with: .color(ink.opacity((dark ? 0.026 : 0.020) * (0.55 + variation * 0.45))),
-                                       lineWidth: 0.25 + variation * 0.2)
-                        context.stroke(path.offsetBy(dx: 0, dy: 0.65), with: .color(highlight.opacity(dark ? 0.035 : 0.16)),
-                                       lineWidth: 0.3)
                     }
                 }
                 .allowsHitTesting(false)
@@ -40,5 +58,8 @@ struct ContentSurfaceBackground: View {
         }
     }
 
-    private func fraction(_ value: Double) -> Double { value - floor(value) }
+    private func noise(_ index: Int, _ salt: Int) -> Double {
+        let value = sin(Double(index + 1007) * 127.1 + Double(salt) * 311.7) * 43758.5453
+        return value - floor(value)
+    }
 }
