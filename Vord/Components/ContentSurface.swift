@@ -2,11 +2,12 @@ import SwiftUI
 
 struct ContentSurface<Content: View>: View {
     @ViewBuilder var content: () -> Content
+    @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
         content()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(AppColors.surface)
+            .background { ContentSurfaceBackground(woodGrain: settings.woodGrainEnabled) }
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.content, style: .continuous))
     }
 }

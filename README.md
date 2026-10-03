@@ -64,7 +64,7 @@ Settings → Sync & backup can connect this Mac to a compatible Vord sync server
 
 ## Appearance and updates
 
-Settings → General → Sidebar icons switches between textured cream-paper/graphite Sculpted icons and the original Outline icons. Transparent icon bodies use native silhouette shadows that react gently to hover and selection, with separate light/dark rendering. Reduce Motion and Reduce Transparency are respected.
+Settings → Appearance → Sidebar icons switches between textured cream-paper/graphite Sculpted icons and the original Outline icons. Transparent icon bodies use native silhouette shadows that react gently to hover and selection, with separate light/dark rendering. The optional Subtle wood grain background adds stationary, very low-contrast grain to the content panel without changing its colour; it is off by default. Reduce Motion and Reduce Transparency are respected.
 
 Settings → About shows the installed version and checks [GitHub Releases](https://github.com/Yhazrin/Vord/releases). Automatic checks run at most once daily; Check now is always available. A newer stable release offers its macOS download. This version does not replace its own application bundle automatically. Release packages currently use local ad-hoc signing, not Developer ID signing or notarization.
 

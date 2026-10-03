@@ -67,10 +67,6 @@ struct SettingsView: View {
                     ControlRow(title: "Quick Add shortcut") {
                         MenuSelect(name: "Shortcut", selection: shortcutBinding, choices: QuickAddShortcut.all.map(\.id), label: { QuickAddShortcut.from(id: $0).title })
                     }
-                    RowDivider()
-                    ControlRow(title: "Appearance") { Text("Follows macOS").font(AppTypography.caption).foregroundStyle(AppColors.secondaryText) }
-                    RowDivider()
-                    NavigationIconSettings(settings: settings)
                 }
                 if let warning = settings.loginWarning ?? settings.hotKeyWarning { notice(warning) }
                 #if DEBUG
@@ -80,6 +76,22 @@ struct SettingsView: View {
                     }
                 }
                 #endif
+            case .appearance:
+                settingsGroup(title: "Appearance") {
+                    ControlRow(title: "Color scheme") { Text("Follows macOS").font(AppTypography.caption).foregroundStyle(AppColors.secondaryText) }
+                    RowDivider()
+                    NavigationIconSettings(settings: settings)
+                    RowDivider()
+                    ControlRow(title: "Subtle wood grain") {
+                        Toggle("Subtle wood grain", isOn: Binding(get: { settings.woodGrainEnabled }, set: { settings.setWoodGrainEnabled($0) }))
+                            .toggleStyle(.switch).labelsHidden()
+                    }
+                }
+                ContentSurfaceBackground(woodGrain: settings.woodGrainEnabled)
+                    .frame(height: 120)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(alignment: .center) { Text("Aa").font(AppTypography.ui(size: 28)).foregroundStyle(AppColors.primaryText) }
+                    .accessibilityLabel("Content background preview")
             case .learning:
                 settingsGroup(title: "Review") {
                     ControlRow(title: "Review direction") {
@@ -266,11 +278,12 @@ struct SettingsView: View {
 }
 
 private enum SettingsCategory: String, CaseIterable, Identifiable {
-    case general = "General", learning = "Learning", capture = "Capture", dictionary = "Dictionary", ai = "AI services", data = "Sync & backup", about = "About"
+    case general = "General", appearance = "Appearance", learning = "Learning", capture = "Capture", dictionary = "Dictionary", ai = "AI services", data = "Sync & backup", about = "About"
     var id: String { rawValue }
     var symbol: String {
         switch self {
         case .general: return "gearshape"
+        case .appearance: return "paintbrush"
         case .learning: return "arrow.trianglehead.2.clockwise.rotate.90"
         case .capture: return "circle.dotted"
         case .dictionary: return "book.closed"

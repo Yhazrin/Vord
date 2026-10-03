@@ -36,6 +36,7 @@ final class AppSettings: ObservableObject {
     @Published private(set) var clipboardCaptureEnabled: Bool
     @Published private(set) var floatingQuickAddEnabled: Bool
     @Published private(set) var navigationIconStyle: NavigationIconStyle
+    @Published private(set) var woodGrainEnabled: Bool
     @Published var hotKeyWarning: String?
     @Published var loginWarning: String?
 
@@ -59,6 +60,7 @@ final class AppSettings: ObservableObject {
         floatingQuickAddEnabled = defaults.object(forKey: Key.floatingQuickAdd) == nil
             ? true : defaults.bool(forKey: Key.floatingQuickAdd)
         navigationIconStyle = NavigationIconStyle(rawValue: defaults.string(forKey: Key.navigationIconStyle) ?? "") ?? .sculpted
+        woodGrainEnabled = defaults.bool(forKey: Key.woodGrain)
         translation.select(id: provider)
     }
 
@@ -104,6 +106,11 @@ final class AppSettings: ObservableObject {
         defaults.set(style.rawValue, forKey: Key.navigationIconStyle)
     }
 
+    func setWoodGrainEnabled(_ enabled: Bool) {
+        woodGrainEnabled = enabled
+        defaults.set(enabled, forKey: Key.woodGrain)
+    }
+
     var providerOptions: [(id: String, name: String)] {
         translation.options()
     }
@@ -117,5 +124,6 @@ final class AppSettings: ObservableObject {
         static let clipboardCapture = "clipboardCaptureEnabled"
         static let floatingQuickAdd = "floatingQuickAddEnabled"
         static let navigationIconStyle = "navigationIconStyle"
+        static let woodGrain = "appearance.woodGrain"
     }
 }
