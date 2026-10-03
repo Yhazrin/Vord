@@ -1,0 +1,9 @@
+# Sidebar icon assets
+
+Asset: `Vord/Resources/navigation-icons-sculpted.png`.
+
+The built-in image generation tool derived this transparent atlas from the user-provided paper-and-graphite reference. It preserves the intended material and silhouettes; this is a reconstruction, not a claim of pixel-identical extraction. The app separates its eight bodies, removes alpha debris once, caches the results, and draws contact and cast shadows natively. The microphone keeps both its capsule and stand. Hover lifts by 1.1 points, selection by 0.45 points; Reduce Motion removes those movements. Sidebar icons are 26 points and Settings previews 22 points.
+
+Selected asset prompt:
+
+> Use case: background-extraction. Edit target is supplied ORIGINAL icon sheet. Extract the exact eight ORIGINAL cream paper and dark graphite physical icon bodies; remove every BACKGROUND surface and every outer projected CAST SHADOW. Preserve original shapes, graphite and ivory material colors, layered paper thickness, subtle surface grain, folded corners, the original INTERNAL layer-contact occlusion only. No redesign or replacement symbols. Asset: transparent RGBA icon atlas used by software that will render its own cast shadows. Arrange precisely in 4 columns x 2 rows of equal SQUARE cells on a 2:1 canvas. Row1 calendar, checked stacked cards, microphone, bookmarked definition cards; row2 overlapping speech bubbles, three leaning books, folded add document, gear. Center each in its cell, roughly 70% of cell side as longest dimension, comfortable identical margins. All objects completely isolated on real alpha transparency. No shadow pixels outside the objects, no grey halos, no ground, no rectangles, no labels, no outer shadows, no giant spaces above or below grid. The aim is faithfully isolating the provided original objects for native dynamic lighting, not a new stylistic interpretation.
