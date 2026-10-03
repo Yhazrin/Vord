@@ -22,6 +22,7 @@ final class LibraryViewModel: ObservableObject {
             let (rows, library) = try await (loadedRows, snapshot)
             self.rows = rows
             entries = Dictionary(uniqueKeysWithValues: library.entries.map { ($0.id, $0) })
+            if !tags.contains(tag) { tag = "All tags" }
             applyVisible()
             error = nil
         } catch {
@@ -32,12 +33,13 @@ final class LibraryViewModel: ObservableObject {
     var tags: [String] { ["All tags"] + Set(rows.flatMap(\.tags)).sorted() }
     func searchChanged() { applyVisible() }
     func sortChanged() { applyVisible() }
-    private func applyVisible() {
+    func refreshDue(now: Date = Date()) { applyVisible(now: now) }
+    private func applyVisible(now: Date = Date()) {
         let scoped = rows.filter { row in
             guard tag == "All tags" || row.tags.contains(tag) else { return false }
             switch scope {
             case .active: return !row.archived
-            case .due: return !row.archived && !row.english.trimmed.isEmpty && !row.chinese.trimmed.isEmpty && (row.nextDueAt ?? .distantFuture) <= Date()
+            case .due: return !row.archived && !row.english.trimmed.isEmpty && !row.chinese.trimmed.isEmpty && (row.nextDueAt ?? .distantFuture) <= now
             case .pending: return !row.archived && (row.english.trimmed.isEmpty || row.chinese.trimmed.isEmpty)
             case .archived: return row.archived
             }
@@ -62,6 +64,8 @@ struct LibraryView: View {
     @EnvironmentObject private var dependencies: AppDependencies
     @StateObject private var model = LibraryViewModel()
     @State private var selectedID: UUID?
+    @FocusState private var searching: Bool
+    private let dueRefresh = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     var body: some View {
         Group {
@@ -79,6 +83,13 @@ struct LibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: .vordLibraryDidChange)) { _ in
             guard selectedID == nil else { return }
             Task { await model.load(dependencies.repository) }
+        }
+        .onReceive(dueRefresh) { now in
+            guard selectedID == nil, model.scope == .due else { return }
+            model.refreshDue(now: now)
+        }
+        .onChange(of: selectedID) { _, id in
+            if id == nil, !model.search.isEmpty { searching = true }
         }
     }
 
@@ -119,6 +130,12 @@ struct LibraryView: View {
         .frame(maxWidth: AppSpacing.library, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .modifier(PageInset(top: 20, bottom: AppSpacing.lg))
+        .background {
+            Button("Search words") { searching = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .hidden()
+                .accessibilityHidden(true)
+        }
     }
 
     private var header: some View {
@@ -203,7 +220,18 @@ struct LibraryView: View {
                 .textFieldStyle(.plain)
                 .font(AppTypography.body)
                 .foregroundStyle(AppColors.primaryText)
+                .focused($searching)
                 .onChange(of: model.search) { _, _ in model.searchChanged() }
+                .onSubmit {
+                    guard !model.search.trimmed.isEmpty, let first = model.visible.first else { return }
+                    searching = false
+                    selectedID = first.id
+                }
+                .onExitCommand {
+                    if model.search.isEmpty { searching = false }
+                    else { model.search = "" }
+                }
+                .help("⌘F to search · Return to open the first result · Esc to clear")
                 if !model.search.isEmpty {
                     ChromeIconButton(symbol: "xmark", help: "Clear search") { model.search = "" }
                 }
@@ -420,6 +448,8 @@ struct WordDetailView: View {
             .foregroundStyle(AppColors.secondaryText)
         }
         .buttonStyle(.plain)
+        .keyboardShortcut("[", modifiers: .command)
+        .disabled(editing || saving)
     }
 
     private var readingColumn: some View {
