@@ -112,6 +112,9 @@ struct GlassOrbView: View {
                     }
                     eyes(phase: phase).opacity(faceOpacity)
                 }
+                // The mask belongs to the lens bounds, not the face's intrinsic
+                // size. A small inscribed circle otherwise cuts both eyes in half.
+                .frame(width: lensSize.width, height: lensSize.height)
                 .clipShape(Circle())
                 .allowsHitTesting(false)
             }
@@ -155,13 +158,13 @@ struct GlassOrbView: View {
             successful: motion.returnedSuccessfully, hovered: hovered,
             dragging: motion.isDragging, displacement: motion.refraction.width, reduced: reduceMotion,
             activity: motion.activity)
-        return HStack(spacing: 7) {
+        return HStack(spacing: 9) {
             OrbEye(openness: pose.openness, smile: pose.smile)
-                .stroke(style: StrokeStyle(lineWidth: 4.2, lineCap: .round))
+                .stroke(style: StrokeStyle(lineWidth: 6.2, lineCap: .round))
             OrbEye(openness: pose.rightOpenness, smile: pose.smile)
-                .stroke(style: StrokeStyle(lineWidth: 4.2, lineCap: .round))
+                .stroke(style: StrokeStyle(lineWidth: 6.2, lineCap: .round))
         }
-        .frame(width: 28, height: 17)
+        .frame(width: 34, height: 24)
         .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.88) : Color(white: 0.16).opacity(0.88))
         .rotationEffect(.degrees(pose.tilt))
         .offset(x: motion.refraction.width * 0.22 + pointerOffset.width * 0.8 + pose.gaze.width,
@@ -180,13 +183,13 @@ private struct OrbEye: Shape {
     }
     func path(in rect: CGRect) -> Path {
         let centre = CGPoint(x: rect.midX, y: rect.midY)
-        let halfHeight = 5.8 * openness * (1 - smile)
+        let halfHeight = 7.3 * openness * (1 - smile)
         let closed = pow(max(0, 1 - openness), 2) * (1 - smile)
-        let halfWidth = 3.7 * smile + 3.2 * closed
+        let halfWidth = 4.6 * smile + 3.8 * closed
         var path = Path()
         path.move(to: CGPoint(x: centre.x - halfWidth, y: centre.y - halfHeight + 1.4 * smile))
         path.addQuadCurve(to: CGPoint(x: centre.x + halfWidth, y: centre.y + halfHeight + 1.4 * smile),
-                          control: CGPoint(x: centre.x, y: centre.y - 5.2 * smile + 1.2 * closed))
+                          control: CGPoint(x: centre.x, y: centre.y - 6.5 * smile + 1.2 * closed))
         return path
     }
 }
