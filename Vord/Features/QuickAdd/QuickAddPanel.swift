@@ -15,7 +15,7 @@ final class QuickAddModel: ObservableObject {
     @Published private(set) var sourceNote: String?
     @Published private(set) var selectionPrompt: String?
     @Published private(set) var lastSavedWord: String?
-    @Published private(set) var panelHeight: CGFloat = 200
+    @Published private(set) var panelHeight: CGFloat = 112
     @Published private(set) var focusRequest = 0
     func requestInputFocus() { focusRequest += 1 }
     var canSave: Bool { !text.trimmed.isEmpty && !isSaving && candidates.isEmpty }
@@ -31,7 +31,7 @@ final class QuickAddModel: ObservableObject {
         session += 1
         lookup?.cancel(); text = ""; hint = ""; candidates = []
         isTranslating = false; isSaving = false; preview = nil; sourceNote = nil; selectionPrompt = nil; errorMessage = nil; lastSavedWord = nil
-        panelHeight = 200
+        panelHeight = 112
     }
     func presentWordChoices(_ words: [String]) {
         let listed = words.prefix(8).joined(separator: ", ")
@@ -47,10 +47,11 @@ final class QuickAddModel: ObservableObject {
         preview = nil; candidates = []; hint = ""; errorMessage = nil
         guard !raw.isEmpty else {
             isTranslating = false
-            if selectionPrompt == nil { panelHeight = 200 }
+            if selectionPrompt == nil { panelHeight = 112 }
             return
         }
         isTranslating = true
+        panelHeight = 156
         lookup = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 220_000_000)
             guard !Task.isCancelled else { return }
@@ -99,11 +100,11 @@ final class QuickAddModel: ObservableObject {
             hint = found.requiresSelection ? "Choose an English word below." : (preview?.chinese ?? "")
             isTranslating = false
             let showsExample = preview?.exampleSentence?.trimmed.isEmpty == false
-            panelHeight = candidates.isEmpty ? (preview == nil ? 200 : (showsExample ? 440 : 360)) : 420
+            panelHeight = candidates.isEmpty ? (preview == nil ? 156 : (showsExample ? 300 : 256)) : 380
         } catch {
             guard !Task.isCancelled, text.trimmed == raw else { return }
             preview = nil; hint = error.localizedDescription; isTranslating = false
-            panelHeight = 200
+            panelHeight = 156
         }
     }
 }
@@ -112,11 +113,11 @@ struct QuickAddView: View {
     @ObservedObject var model: QuickAddModel
     var onClose: () -> Void
     var onSaved: (() -> Void)? = nil
-    @State private var focused = false
+    @State private var focused = true
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 CaptureInput(text: $model.text, focused: $focused, fontSize: 22, onSubmit: submit, onCancel: onClose)
                     .frame(height: 30)
@@ -126,22 +127,21 @@ struct QuickAddView: View {
                 Text(source).font(AppTypography.caption).foregroundStyle(AppColors.tertiaryText)
                     .lineLimit(1).truncationMode(.middle).help(source)
             }
-            Hairline()
-            ScrollView {
+            if hasLookupContent {
+              Hairline()
+              ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if model.isTranslating {
-                        HStack { ProgressView().controlSize(.small); Text("Looking up…") }.font(AppTypography.caption)
+                        ProgressView().controlSize(.small).accessibilityLabel("Looking up")
                     } else if let preview = model.preview {
                         VStack(alignment: .leading, spacing: 12) {
                         Text(preview.chinese).font(AppTypography.ui(size: 18)).lineSpacing(3)
                             .fixedSize(horizontal: false, vertical: true).textSelection(.enabled).id(preview.chinese)
                         if let definition = preview.englishDefinition {
-                            Text("English definition").font(AppTypography.caption).foregroundStyle(AppColors.secondaryText)
                             Text(definition).font(AppTypography.body).lineSpacing(3)
                                 .fixedSize(horizontal: false, vertical: true).textSelection(.enabled).id(definition)
                         }
                         if let example = preview.exampleSentence?.trimmed, !example.isEmpty {
-                            Text("Example").font(AppTypography.caption).foregroundStyle(AppColors.secondaryText)
                             Text(example).font(AppTypography.body).italic().lineSpacing(3)
                                 .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                         }
@@ -154,9 +154,6 @@ struct QuickAddView: View {
                     } else if model.text.trimmed.isEmpty, let prompt = model.selectionPrompt, !prompt.isEmpty {
                         Text(prompt).font(AppTypography.body).foregroundStyle(AppColors.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        Text("Enter an English or Chinese word.")
-                            .font(AppTypography.caption).foregroundStyle(AppColors.secondaryText)
                     }
                     if !model.candidates.isEmpty {
                         LazyVStack(alignment: .leading, spacing: 0) {
@@ -176,15 +173,20 @@ struct QuickAddView: View {
                         .modifier(MotionArrival())
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 6)
-            }.frame(maxHeight: .infinity)
+              }.frame(maxHeight: .infinity)
+            }
             HStack {
-                Text(model.isSaving ? "Saving…" : (model.errorMessage ?? "Return to save · Esc to close"))
-                    .font(AppTypography.caption).foregroundStyle(AppColors.secondaryText).lineLimit(2)
+                if model.isSaving {
+                    ProgressView().controlSize(.small).accessibilityLabel("Saving")
+                } else if let error = model.errorMessage {
+                    Text(error).font(AppTypography.caption).foregroundStyle(AppColors.secondaryText).lineLimit(2)
+                }
                 Spacer()
-                PrimaryButton(title: "Save word", action: submit).disabled(!model.canSave)
+                PrimaryButton(title: "Add", action: submit).disabled(!model.canSave)
+                    .help("Return to add")
             }
         }
-        .padding(22).disabled(model.isSaving)
+        .padding(18).disabled(model.isSaving)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .font(AppTypography.body)
         .foregroundStyle(AppColors.primaryText)
@@ -192,6 +194,9 @@ struct QuickAddView: View {
         .onChange(of: model.focusRequest) { _, _ in focused = true }
         .onChange(of: model.text) { _, _ in model.scheduleLookup() }
         .onExitCommand(perform: onClose)
+    }
+    private var hasLookupContent: Bool {
+        model.isTranslating || model.preview != nil || !model.hint.isEmpty || model.selectionPrompt != nil || !model.candidates.isEmpty
     }
     private func submit() { Task { if await model.submit() { (onSaved ?? onClose)() } } }
 }
@@ -298,6 +303,13 @@ final class QuickAddController {
         NSApp.activate()
         panel.makeKeyAndOrderFront(nil)
         model.requestInputFocus()
+        panel.requestCaptureFocus()
+        // Activation may select the main window after a nonactivating panel has appeared.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.presentation.mode == .adding, panel.isVisible else { return }
+            panel.makeKeyAndOrderFront(nil)
+            panel.requestCaptureFocus()
+        }
         onPresent?()
     }
 
@@ -402,6 +414,8 @@ final class QuickAddController {
         if dragging { finishDrag(dragLastPoint) }
         if mode != .collapsed { orbMotion.reset() }
         panel?.allowsKeyboardFocus = mode == .adding
+        if mode == .adding { panel?.requestCaptureFocus() }
+        if mode != .adding { panel?.cancelCaptureFocus() }
         panel?.hasShadow = mode != .collapsed
         let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         withAnimation(reduced ? nil : .spring(duration: 0.42, bounce: 0.12)) { presentation.mode = mode }
@@ -517,10 +531,60 @@ final class QuickAddController {
     }
 }
 
-private final class QuickAddPanel: NSPanel {
+private final class QuickAddPanel: NSPanel, CaptureInputFocusOwner {
     var allowsKeyboardFocus = false
+    private var captureFocusPending = false
+    private var pendingTyping: [NSEvent] = []
     override var canBecomeKey: Bool { allowsKeyboardFocus }
     override var canBecomeMain: Bool { false }
+    func requestCaptureFocus() {
+        captureFocusPending = true
+        if let field = captureField(in: contentView) { captureInputDidAttach(field) }
+    }
+    func cancelCaptureFocus() { captureFocusPending = false; pendingTyping.removeAll() }
+    override func sendEvent(_ event: NSEvent) {
+        // Keep the first keystrokes while SwiftUI inserts the field. Replay native
+        // events into its editor so input methods still interpret them normally.
+        if allowsKeyboardFocus, captureFocusPending, event.type == .keyDown,
+           !event.modifierFlags.contains(.command), !event.modifierFlags.contains(.control),
+           let characters = event.characters, characters.unicodeScalars.contains(where: { $0.value >= 32 }),
+           captureField(in: contentView)?.currentEditor() == nil, pendingTyping.count < 32 {
+            pendingTyping.append(event)
+            return
+        }
+        super.sendEvent(event)
+    }
+    private func replayPendingTyping() {
+        let events = pendingTyping
+        pendingTyping.removeAll()
+        for event in events { super.sendEvent(event) }
+    }
+    func captureInputDidAttach(_ field: CaptureNativeField) {
+        guard captureFocusPending, allowsKeyboardFocus else { return }
+        DispatchQueue.main.async { [weak self, weak field] in
+            guard let self, let field, self.captureFocusPending, self.allowsKeyboardFocus,
+                  self.isVisible, field.window === self else { return }
+            if !self.isKeyWindow { self.makeKey() }
+            guard self.isKeyWindow else { return }
+            if field.currentEditor() != nil {
+                self.captureFocusPending = false
+                self.replayPendingTyping()
+                return
+            }
+            guard self.makeFirstResponder(field) else { return }
+            self.captureFocusPending = false
+            field.selectText(nil)
+            self.replayPendingTyping()
+        }
+    }
+    private func captureField(in view: NSView?) -> CaptureNativeField? {
+        guard let view else { return nil }
+        if let field = view as? CaptureNativeField { return field }
+        for child in view.subviews {
+            if let field = captureField(in: child) { return field }
+        }
+        return nil
+    }
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         super.setFrame(frameRect, display: false)
     }

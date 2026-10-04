@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+/// The native panel owns the first focus request, independent of SwiftUI's insertion transition.
+protocol CaptureInputFocusOwner: AnyObject {
+    func captureInputDidAttach(_ field: CaptureNativeField)
+}
+
 /// Capture is keyboard-first. Request focus after the native field is attached to a key window,
 /// including when a retained quick-add panel is opened for a second time.
 struct CaptureInput: NSViewRepresentable {
@@ -68,6 +73,7 @@ final class CaptureNativeField: NSTextField {
                 }
         }
         requestInputFocus()
+        (window as? any CaptureInputFocusOwner)?.captureInputDidAttach(self)
     }
     func requestInputFocus() {
         guard wantsInputFocus, isEnabled, currentEditor() == nil, !focusQueued else { return }

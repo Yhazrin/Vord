@@ -275,7 +275,7 @@ struct AddView: View {
                     model.example = value
                     if value != model.exampleBaseline { model.exampleEdited = true }
                 }
-            ), placeholder: "Optional")
+            ), placeholder: "Optional", multiline: true)
             LineField(title: "Tags", text: $model.tags, placeholder: "e.g. IELTS, reading")
             LineField(title: "Source or note", text: $model.source, placeholder: "Optional")
         }

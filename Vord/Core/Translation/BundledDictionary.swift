@@ -7,6 +7,8 @@ struct DictionaryCandidate: Identifiable, Equatable, Sendable {
     var source: String
     var match: Match
     var frequency: Int = 0
+    /// The gloss that matched a reverse lookup, when an inflection resolves to its base word.
+    var matchedMeaning: String? = nil
     var id: String { item.english.lowercased() }
 
     func result(for text: String) -> TranslationResult {
@@ -76,7 +78,29 @@ final class BundledDictionary: @unchecked Sendable {
         if normalized.count == 1 {
             matches = try query("SELECT * FROM lexicon WHERE instr(search,?)>0 ORDER BY rank, length(english) LIMIT 180", [normalized], match: .meaning)
         }
-        return Array(matches.sorted { Self.score($0, query: normalized) < Self.score($1, query: normalized) }.prefix(maximum))
+        matches = try matches.map { try canonicalMeaningCandidate($0) }
+        let ordered = matches.sorted {
+            let left = Self.score($0, query: normalized), right = Self.score($1, query: normalized)
+            return left == right ? $0.id < $1.id : left < right
+        }
+        var seen = Set<String>()
+        return Array(ordered.filter { seen.insert($0.id).inserted }.prefix(maximum))
+    }
+
+    private func canonicalMeaningCandidate(_ candidate: DictionaryCandidate) throws -> DictionaryCandidate {
+        // Keep standalone nouns/adjectives (e.g. meeting, loving). Resolve unranked,
+        // definition-less listings or glosses explicitly described as inflections.
+        let gloss = candidate.item.chinese
+        let explicitForm = gloss.range(of: "的(?:第三人称单数|过去式|过去分词|现在分词|名词复数|复数)", options: .regularExpression) != nil
+        let unrankedListing = candidate.frequency >= 1_000_000
+            && (candidate.item.englishDefinition?.trimmed.isEmpty ?? true)
+        guard explicitForm || unrankedListing else { return candidate }
+        let bases = try query("SELECT l.* FROM forms f JOIN lexicon l ON l.id=f.word_id WHERE f.form=? AND l.normalized<>? ORDER BY l.rank, l.normalized LIMIT 2",
+                              [candidate.id, candidate.id], match: .meaning)
+        // Ambiguous forms must not silently select a different sense (e.g. axes).
+        guard bases.count == 1, var base = bases.first else { return candidate }
+        base.matchedMeaning = gloss
+        return base
     }
     private func query(_ sql: String, _ bindings: [String], match: DictionaryCandidate.Match) throws -> [DictionaryCandidate] {
         guard let db else { throw TranslationFailure.failed("The dictionary is closed.") }
@@ -112,7 +136,7 @@ final class BundledDictionary: @unchecked Sendable {
         return Array(Set((0..<characters.count - 1).map { characters[$0] + characters[$0 + 1] })).sorted()
     }
     static func score(_ candidate: DictionaryCandidate, query: String) -> Int {
-        let chinese = DictionaryStore.normalizeChinese(candidate.item.chinese)
+        let chinese = DictionaryStore.normalizeChinese(candidate.matchedMeaning ?? candidate.item.chinese)
         let senses = chinese.components(separatedBy: CharacterSet(charactersIn: "；;、,，\n"))
             .map { $0.replacingOccurrences(of: "^[a-z. ]+", with: "", options: .regularExpression).trimmed }
         let match = senses.contains(query) || senses.contains(query + "的") ? 0 : (chinese.contains(query) ? 1 : 2)

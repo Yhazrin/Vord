@@ -256,6 +256,7 @@ struct LineField: View {
     var title: String
     @Binding var text: String
     var placeholder: String? = nil
+    var multiline = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs) {
@@ -265,8 +266,10 @@ struct LineField: View {
             TextField(
                 "",
                 text: $text,
-                prompt: Text(placeholder ?? title).foregroundStyle(AppColors.tertiaryText)
+                prompt: Text(placeholder ?? title).foregroundStyle(AppColors.tertiaryText),
+                axis: multiline ? .vertical : .horizontal
             )
+            .lineLimit(multiline ? 1...6 : 1...1)
             .textFieldStyle(.plain)
             .font(AppTypography.body)
             .foregroundStyle(AppColors.primaryText)

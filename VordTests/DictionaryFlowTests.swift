@@ -47,6 +47,26 @@ final class DictionaryFlowTests: XCTestCase {
         XCTAssertEqual(simplified.map(\.id), traditional.map(\.id))
         XCTAssertFalse(try store.search("猫", from: .chinese).isEmpty)
     }
+    func testChineseReverseLookupOffersDistinctBaseWordsInsteadOfInflectionListings() throws {
+        let matches = try store().search("缓解", from: .chinese)
+        let words = matches.map(\.id)
+        XCTAssertTrue(words.contains("alleviate"))
+        XCTAssertTrue(words.contains("relieve"))
+        XCTAssertFalse(words.contains("alleviates"))
+        XCTAssertFalse(words.contains("alleviating"))
+        XCTAssertFalse(words.contains("relieves"))
+        XCTAssertEqual(Set(words).count, words.count)
+        let alleviate = try XCTUnwrap(matches.first { $0.id == "alleviate" })
+        XCTAssertEqual(alleviate.item.chinese, "vt. 减轻, 使缓和")
+        XCTAssertNotNil(alleviate.item.englishDefinition)
+        XCTAssertTrue(try XCTUnwrap(alleviate.matchedMeaning).contains("缓解"))
+    }
+    func testReverseLookupKeepsStandaloneNounsAndEnglishExactEntries() throws {
+        let dictionary = store()
+        let meetings = try dictionary.search("会议", from: .chinese, limit: 30)
+        XCTAssertTrue(meetings.contains { $0.id == "meeting" })
+        XCTAssertEqual(dictionary.match("alleviates", from: .english)?.english, "alleviates")
+    }
     func testPrefixesAreSuggestionsAndDoNotSilentlySaveADifferentHeadword() async throws {
         let service = service(store())
         let found = try await service.lookup(text: "serendi")

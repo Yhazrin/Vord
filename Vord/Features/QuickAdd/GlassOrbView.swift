@@ -68,39 +68,35 @@ struct GlassOrbView: View {
     var onDragChange: (CGPoint) -> Void
     var onDragEnd: (CGPoint) -> Void
     @State private var hovered = false
+    @State private var visible = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        ZStack {
-            if reduceTransparency {
-                Circle().fill(colorScheme == .dark ? Color(white: 0.22) : Color(white: 0.9))
-            } else {
-                OrbGlassMaterial()
-                Circle().fill(RadialGradient(colors: [.white.opacity(0.45), .white.opacity(0.04), .black.opacity(0.14)],
-                    center: .init(x: 0.28 + motion.refraction.width / 60, y: 0.22 + motion.refraction.height / 60),
-                    startRadius: 0, endRadius: 56))
-                // Reflected light moves inside a fixed circular silhouette.
-                Ellipse().fill(.white.opacity(0.68)).frame(width: 27, height: 9)
-                    .blur(radius: 1.8).rotationEffect(.degrees(-32))
-                    .offset(x: -9 + motion.refraction.width, y: -16 + motion.refraction.height)
-                Circle().stroke(.white.opacity(0.32), lineWidth: 4)
-                    .blur(radius: 2).padding(4)
-                    .offset(x: motion.refraction.width * 0.6, y: motion.refraction.height * 0.6)
+        TimelineView(.animation(minimumInterval: 1 / 24, paused: reduceMotion || !visible)) { clock in
+            let phase = reduceMotion ? 0 : clock.date.timeIntervalSinceReferenceDate
+            ZStack {
+                if reduceTransparency {
+                    Circle().fill(colorScheme == .dark ? Color(white: 0.18) : Color(white: 0.94))
+                } else {
+                    if #available(macOS 26, *) {
+                        OrbLiquidGlass(dark: colorScheme == .dark)
+                    } else {
+                        OrbGlassMaterial(dark: colorScheme == .dark)
+                    }
+                    OrbOptics(phase: phase, displacement: motion.refraction, dark: colorScheme == .dark)
+                }
+                eyes(phase: phase)
             }
-            Image(systemName: "plus").font(.system(size: 17, weight: .medium, design: .rounded))
-                .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
-                .offset(x: motion.refraction.width * 0.2, y: motion.refraction.height * 0.2)
         }
         .frame(width: 56, height: 56)
         .clipShape(Circle())
-        .overlay(Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.85), .white.opacity(0.15), .white.opacity(0.5)],
-            startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.8))
-        .shadow(color: .black.opacity(motion.isDragging ? 0.2 : 0.13), radius: motion.isDragging ? 7 : 4, y: 3)
+        .shadow(color: .black.opacity(motion.isDragging ? 0.2 : 0.14), radius: motion.isDragging ? 5 : 3, y: 3)
         .overlay(OrbPointerSurface(onOpen: onOpen, onBegin: onDragBegin, onChange: onDragChange, onEnd: onDragEnd))
-        .brightness(hovered && !reduceMotion ? 0.035 : 0)
         .onHover { hovered = $0 }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
         .help("Add a word · Drag to move")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Vord quick add")
@@ -108,15 +104,103 @@ struct GlassOrbView: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onOpen() }
     }
+
+    private func eyes(phase: Double) -> some View {
+        let cycle = phase.truncatingRemainder(dividingBy: 7.6)
+        let blink = reduceMotion || cycle > 0.18 ? 1 : max(0.2, abs(cos(cycle / 0.18 * .pi)))
+        return HStack(spacing: 7) {
+            Capsule().frame(width: 3.2, height: 8.5)
+            Capsule().frame(width: 3.2, height: 8.5)
+        }
+        .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.82) : Color(white: 0.2).opacity(0.82))
+        .scaleEffect(x: 1, y: blink)
+        .shadow(color: .white.opacity(0.28), radius: 0.4, y: 0.6)
+        .offset(x: motion.refraction.width * 0.22, y: 1 + motion.refraction.height * 0.22 + (hovered ? -0.6 : 0))
+        .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: hovered)
+    }
+}
+
+/// The system supplies background sampling and lensing. These broad highlights
+/// add spherical volume, rather than drawing a bubble outline or waves on top.
+private struct OrbOptics: View {
+    var phase: Double
+    var displacement: CGSize
+    var dark: Bool
+
+    var body: some View {
+        let drift = sin(phase * 0.32)
+        ZStack {
+            Circle().fill(RadialGradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .clear, location: 0.62),
+                .init(color: .black.opacity(dark ? 0.22 : 0.14), location: 0.87),
+                .init(color: .white.opacity(0.3), location: 0.98),
+                .init(color: .clear, location: 1)
+            ], center: .center, startRadius: 0, endRadius: 28))
+            // A soft reflected light source, with a narrow, crisp specular core.
+            Ellipse().fill(LinearGradient(colors: [.white.opacity(0.76), .white.opacity(0.03)],
+                startPoint: .top, endPoint: .bottom))
+                .frame(width: 25, height: 11).blur(radius: 1.8)
+                .rotationEffect(.degrees(-36))
+                .offset(x: -9 + displacement.width * 0.5 + drift,
+                        y: -15 + displacement.height * 0.5)
+            Ellipse().fill(.white.opacity(0.78))
+                .frame(width: 13, height: 2.6).blur(radius: 0.5)
+                .rotationEffect(.degrees(-36))
+                .offset(x: -11 + displacement.width * 0.5 + drift,
+                        y: -18 + displacement.height * 0.5)
+            // Light collecting through the opposite side of a solid glass lens.
+            Ellipse().fill(RadialGradient(colors: [.white.opacity(0.52), .clear],
+                center: .center, startRadius: 0, endRadius: 15))
+                .frame(width: 30, height: 13).rotationEffect(.degrees(-30))
+                .offset(x: 9 + displacement.width * 0.35 - drift,
+                        y: 18 + displacement.height * 0.35)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+@available(macOS 26, *)
+private struct OrbLiquidGlass: NSViewRepresentable {
+    var dark: Bool
+    func makeNSView(context: Context) -> NSGlassEffectView {
+        let view = OrbLiquidLensView()
+        view.style = .clear
+        view.tintColor = nil
+        view.contentView = NSView()
+        updateNSView(view, context: context)
+        return view
+    }
+    func updateNSView(_ view: NSGlassEffectView, context: Context) {
+        let name: NSAppearance.Name = dark ? .darkAqua : .aqua
+        if view.appearance?.name != name { view.appearance = NSAppearance(named: name) }
+    }
+}
+
+@available(macOS 26, *)
+private final class OrbLiquidLensView: NSGlassEffectView {
+    override func layout() {
+        super.layout()
+        cornerRadius = min(bounds.width, bounds.height) / 2
+    }
 }
 
 private struct OrbGlassMaterial: NSViewRepresentable {
+    var dark: Bool
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = OrbEffectView()
-        view.material = .hudWindow; view.blendingMode = .behindWindow; view.state = .active
+        view.material = .underWindowBackground; view.blendingMode = .behindWindow; view.state = .active
+        updateMaterial(view)
         return view
     }
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) { }
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) { updateMaterial(nsView) }
+    private func updateMaterial(_ view: NSVisualEffectView) {
+        let name: NSAppearance.Name = dark ? .darkAqua : .aqua
+        if view.appearance?.name != name { view.appearance = NSAppearance(named: name) }
+        let opacity = dark ? 0.48 : 0.34
+        if view.alphaValue != opacity { view.alphaValue = opacity }
+    }
 }
 
 private final class OrbEffectView: NSVisualEffectView {
