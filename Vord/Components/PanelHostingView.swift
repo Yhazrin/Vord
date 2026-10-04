@@ -5,6 +5,7 @@ import SwiftUI
 /// The default hosting view resizes the window from `windowDidLayout`, which
 /// aborts when a spring is already calling `setFrame` in the same display cycle.
 final class PanelHostingView<Content: View>: NSHostingView<Content> {
+    override var isOpaque: Bool { false }
     required init(rootView: Content) {
         super.init(rootView: rootView)
         sizingOptions = []

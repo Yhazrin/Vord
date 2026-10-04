@@ -75,42 +75,42 @@ struct GlassOrbView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: reduceMotion || !visible)) { clock in
-            let phase = reduceMotion ? 0 : clock.date.timeIntervalSinceReferenceDate
-            ZStack {
-                if reduceTransparency {
-                    Circle().fill(colorScheme == .dark ? Color(white: 0.18) : Color(white: 0.94))
-                } else {
-                    if #available(macOS 26, *) {
-                        OrbLiquidGlass(dark: colorScheme == .dark)
-                            .mask {
-                                // Feather only the last two points of the lens; keep
-                                // its centre and background sampling at full strength.
-                                Circle().fill(RadialGradient(stops: [
-                                    .init(color: .white, location: 0),
-                                    .init(color: .white, location: 0.92),
-                                    .init(color: .white.opacity(0.35), location: 0.985),
-                                    .init(color: .clear, location: 1)
-                                ], center: .center, startRadius: 0, endRadius: 28))
-                            }
-                    } else {
-                        OrbGlassMaterial(dark: colorScheme == .dark)
+        ZStack {
+            if reduceTransparency {
+                Circle().fill(colorScheme == .dark ? Color(white: 0.18) : Color(white: 0.94))
+            } else if #available(macOS 26, *) {
+                // Keep the live compositor surface out of SwiftUI masks, blur and
+                // shadow passes. AppKit owns its curved edge and optical response.
+                OrbLiquidGlass(dark: colorScheme == .dark, interactive: !reduceMotion,
+                    onOpen: onOpen, onBegin: onDragBegin, onChange: onDragChange,
+                    onEnd: onDragEnd, onPointer: trackPointer)
+            } else {
+                OrbGlassMaterial(dark: colorScheme == .dark)
+                    .shadow(color: .black.opacity(0.09), radius: 4, y: 2)
+            }
+            TimelineView(.animation(minimumInterval: 1 / 24, paused: reduceMotion || !visible)) { clock in
+                let phase = reduceMotion ? 0 : clock.date.timeIntervalSinceReferenceDate
+                ZStack {
+                    if !reduceTransparency {
+                        OrbOptics(phase: phase, displacement: CGSize(width: motion.refraction.width + pointerOffset.width,
+                            height: motion.refraction.height + pointerOffset.height))
                     }
-                    OrbOptics(phase: phase, displacement: CGSize(width: motion.refraction.width + pointerOffset.width,
-                        height: motion.refraction.height + pointerOffset.height))
+                    eyes(phase: phase)
                 }
-                eyes(phase: phase)
+                .clipShape(Circle())
+                .allowsHitTesting(false)
             }
         }
         .frame(width: 56, height: 56)
-        .clipShape(Circle())
-        .shadow(color: .black.opacity(motion.isDragging ? 0.14 : 0.09), radius: motion.isDragging ? 6 : 4, y: 2)
-        .overlay(OrbPointerSurface(onOpen: onOpen, onBegin: onDragBegin, onChange: onDragChange, onEnd: onDragEnd, onPointer: { point in
-            guard !reduceMotion else { return }
-            withAnimation(.smooth(duration: 0.18)) {
-                pointerOffset = point.map { CGSize(width: $0.x * 2.4, height: $0.y * 2.4) } ?? .zero
+        .overlay {
+            if reduceTransparency {
+                pointerSurface
+            } else if #available(macOS 26, *) {
+                EmptyView()
+            } else {
+                pointerSurface
             }
-        }))
+        }
         .onHover { hovered = $0 }
         .onAppear { visible = true }
         .onDisappear { visible = false }
@@ -120,6 +120,17 @@ struct GlassOrbView: View {
         .accessibilityHint("Opens quick add. Drag to position at either screen edge.")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onOpen() }
+    }
+
+    private var pointerSurface: some View {
+        OrbPointerSurface(onOpen: onOpen, onBegin: onDragBegin, onChange: onDragChange,
+                          onEnd: onDragEnd, onPointer: trackPointer)
+    }
+    private func trackPointer(_ point: CGPoint?) {
+        guard !reduceMotion else { return }
+        withAnimation(.smooth(duration: 0.18)) {
+            pointerOffset = point.map { CGSize(width: $0.x * 2.4, height: $0.y * 2.4) } ?? .zero
+        }
     }
 
     private func eyes(phase: Double) -> some View {
@@ -148,19 +159,19 @@ private struct OrbOptics: View {
         let drift = sin(phase * 0.32)
         ZStack {
             // A soft reflected light source, with a narrow, crisp specular core.
-            Ellipse().fill(LinearGradient(colors: [.white.opacity(0.76), .white.opacity(0.03)],
+            Ellipse().fill(LinearGradient(colors: [.white.opacity(0.34), .white.opacity(0.01)],
                 startPoint: .top, endPoint: .bottom))
                 .frame(width: 25, height: 11).blur(radius: 1.8)
                 .rotationEffect(.degrees(-36))
                 .offset(x: -9 + displacement.width * 0.5 + drift,
                         y: -15 + displacement.height * 0.5)
-            Ellipse().fill(.white.opacity(0.78))
+            Ellipse().fill(.white.opacity(0.48))
                 .frame(width: 13, height: 2.6).blur(radius: 0.5)
                 .rotationEffect(.degrees(-36))
                 .offset(x: -11 + displacement.width * 0.5 + drift,
                         y: -18 + displacement.height * 0.5)
             // Light collecting through the opposite side of a solid glass lens.
-            Ellipse().fill(RadialGradient(colors: [.white.opacity(0.52), .clear],
+            Ellipse().fill(RadialGradient(colors: [.white.opacity(0.24), .clear],
                 center: .center, startRadius: 0, endRadius: 15))
                 .frame(width: 30, height: 13).rotationEffect(.degrees(-30))
                 .offset(x: 9 + displacement.width * 0.35 - drift,
@@ -174,15 +185,32 @@ private struct OrbOptics: View {
 @available(macOS 26, *)
 private struct OrbLiquidGlass: NSViewRepresentable {
     var dark: Bool
+    var interactive: Bool
+    var onOpen: () -> Void
+    var onBegin: (CGPoint) -> Void
+    var onChange: (CGPoint) -> Void
+    var onEnd: (CGPoint) -> Void
+    var onPointer: (CGPoint?) -> Void
     func makeNSView(context: Context) -> NSGlassEffectView {
         let view = OrbLiquidLensView()
         view.style = .clear
         view.tintColor = nil
-        view.contentView = NSView()
+        let pointer = OrbPointerView()
+        pointer.autoresizingMask = [.width, .height]
+        // Input belongs to the native glass hierarchy so its interactive effect
+        // sees the control's actual pointer events, rather than a sibling overlay.
+        view.contentView = pointer
         updateNSView(view, context: context)
         return view
     }
     func updateNSView(_ view: NSGlassEffectView, context: Context) {
+        if let pointer = view.contentView as? OrbPointerView {
+            pointer.onOpen = onOpen; pointer.onBegin = onBegin
+            pointer.onChange = onChange; pointer.onEnd = onEnd; pointer.onPointer = onPointer
+        }
+        if #available(macOS 27, *) {
+            if view.effectIsInteractive != interactive { view.effectIsInteractive = interactive }
+        }
         let name: NSAppearance.Name = dark ? .darkAqua : .aqua
         if view.appearance?.name != name { view.appearance = NSAppearance(named: name) }
     }
@@ -235,6 +263,7 @@ private struct OrbPointerSurface: NSViewRepresentable {
 }
 
 private final class OrbPointerView: NSView {
+    override var isOpaque: Bool { false }
     var onOpen: (() -> Void)?
     var onBegin: ((CGPoint) -> Void)?
     var onChange: ((CGPoint) -> Void)?

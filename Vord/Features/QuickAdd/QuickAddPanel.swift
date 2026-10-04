@@ -700,7 +700,6 @@ private struct QuickCaptureShell: View {
         .background {
             if !compact { RoundedRectangle(cornerRadius: 24, style: .continuous).fill(AppColors.contentBackground) }
         }
-        .clipShape(RoundedRectangle(cornerRadius: compact ? OrbDockPosition.diameter / 2 : 24, style: .continuous))
         .onExitCommand(perform: onClose)
     }
 }
