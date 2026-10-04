@@ -831,20 +831,27 @@ private struct QuickCaptureShell: View {
                     let collapsing = presentation.mode == .collapsing
                     let shell = CaptureCollapseGeometry(size: geometry.size, origin: presentation.collapseOrigin)
                     ZStack {
+                        GlassOrbView(motion: orbMotion, onOpen: onOpen, onDragBegin: onDragBegin,
+                            onDragChange: onDragChange, onDragEnd: onDragEnd, embedded: presentation.embedded,
+                            lensSize: collapsing ? shell.lensSize : CGSize(width: 56, height: 56),
+                            lensRadius: collapsing ? shell.radius : 28,
+                            faceOpacity: collapsing ? shell.faceOpacity : 1,
+                            opticsOpacity: collapsing ? shell.faceOpacity : 1)
+                            .allowsHitTesting(!collapsing)
+                            .accessibilityHidden(collapsing)
                         if collapsing {
+                            // Cover the live lens with the matching paper surface,
+                            // rather than fading/compositing the native glass itself.
                             RoundedRectangle(cornerRadius: shell.radius, style: .continuous)
                                 .fill(AppColors.contentBackground)
-                                .padding(shell.inset)
+                                .frame(width: shell.lensSize.width, height: shell.lensSize.height)
                                 .opacity(1 - shell.glassOpacity)
                                 .contentShape(Rectangle()).onTapGesture(perform: onOpen)
                         }
-                        GlassOrbView(motion: orbMotion, onOpen: onOpen, onDragBegin: onDragBegin,
-                            onDragChange: onDragChange, onDragEnd: onDragEnd, embedded: presentation.embedded)
-                            .opacity(collapsing ? shell.glassOpacity : 1)
-                            .allowsHitTesting(!collapsing)
-                            .accessibilityHidden(collapsing)
                     }.frame(width: geometry.size.width, height: geometry.size.height)
-                }.transition(.identity)
+                }
+                .transaction { $0.animation = nil }
+                .transition(.identity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

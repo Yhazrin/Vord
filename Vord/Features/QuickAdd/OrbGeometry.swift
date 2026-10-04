@@ -57,6 +57,8 @@ struct CaptureCollapseGeometry {
     var inset: CGFloat
     var radius: CGFloat
     var glassOpacity: Double
+    var faceOpacity: Double
+    var lensSize: CGSize
 
     init(size: CGSize, origin: CGSize) {
         let target = OrbDockPosition.diameter
@@ -64,9 +66,15 @@ struct CaptureCollapseGeometry {
         let heightTravel = max(1, origin.height - target)
         let remaining = max((size.width - target) / widthTravel, (size.height - target) / heightTravel)
         progress = min(1, max(0, 1 - remaining))
-        inset = 8 * Self.smooth((progress - 0.65) / 0.35)
-        radius = min(24 + 4 * progress, max(0, (min(size.width, size.height) - 2 * inset) / 2))
-        glassOpacity = Double(Self.smooth((progress - 0.72) / 0.25))
+        // Both materials occupy the same silhouette. A fixed small orb fading
+        // behind a larger rectangle reads as two objects, especially on exit.
+        inset = min(8 * Self.smooth((progress - 0.5) / 0.5), max(0, min(size.width, size.height) / 2))
+        lensSize = CGSize(width: max(0, size.width - 2 * inset), height: max(0, size.height - 2 * inset))
+        let circularRadius = min(lensSize.width, lensSize.height) / 2
+        let roundness = Self.smooth((progress - 0.42) / 0.58)
+        radius = min(circularRadius, 24 + (circularRadius - 24) * roundness)
+        glassOpacity = Double(Self.smooth((progress - 0.48) / 0.42))
+        faceOpacity = Double(Self.smooth((progress - 0.8) / 0.18))
     }
     private static func smooth(_ value: CGFloat) -> CGFloat {
         let t = min(1, max(0, value))
@@ -92,6 +100,8 @@ struct OrbFacePose {
     var smile: Double
     var tilt: Double
     var gaze = CGSize.zero
+    var rightOpenness: Double = 1
+    var lift: Double = 0
 
     static func sample(elapsed: Double, returnElapsed: Double?, successful: Bool,
                        hovered: Bool, dragging: Bool, displacement: Double, reduced: Bool,
@@ -102,13 +112,21 @@ struct OrbFacePose {
             guard time >= start, time < start + duration else { return 1 }
             return 1 - 0.93 * pow(sin((time - start) / duration * .pi), 2)
         }
-        var opening = min(blink(cycle, start: 5.7, duration: 0.18), blink(cycle, start: 6.02, duration: 0.14))
+        func idleBlink(_ offset: Double) -> Double {
+            min(blink(cycle, start: 5.7 + offset, duration: 0.18), blink(cycle, start: 6.02 + offset, duration: 0.14))
+        }
+        var opening = idleBlink(0), rightOpening = idleBlink(0.025)
         if let sinceReturn = returnElapsed, !successful {
             opening = min(opening, blink(sinceReturn, start: 0.12, duration: 0.2))
+            rightOpening = min(rightOpening, blink(sinceReturn, start: 0.145, duration: 0.2))
+        }
+        func smooth(_ value: Double) -> Double {
+            let t = min(1, max(0, value))
+            return t * t * (3 - 2 * t)
         }
         let smile: Double
         if successful, let sinceReturn = returnElapsed, sinceReturn >= 0, sinceReturn < 1.5 {
-            smile = min(1, sinceReturn / 0.16) * min(1, max(0, (1.5 - sinceReturn) / 0.35))
+            smile = smooth(sinceReturn / 0.2) * smooth((1.5 - sinceReturn) / 0.4)
         } else { smile = 0 }
         let gaze: CGSize
         switch activity {
@@ -116,8 +134,10 @@ struct OrbFacePose {
         case .thinking: gaze = CGSize(width: sin(max(0, elapsed) * 0.85) * 1.4, height: -1.4)
         case .studying: gaze = CGSize(width: -1.2, height: 1.2)
         }
-        return Self(openness: opening * (dragging ? 0.74 : (hovered ? 1.06 : 1)),
+        let attention = dragging ? 0.74 : (hovered ? 1.06 : 1)
+        return Self(openness: opening * attention,
                     smile: smile, tilt: dragging ? max(-4, min(4, displacement * 0.75)) : 0,
-                    gaze: dragging ? .zero : gaze)
+                    gaze: dragging ? .zero : gaze, rightOpenness: rightOpening * attention,
+                    lift: -0.8 * smile)
     }
 }

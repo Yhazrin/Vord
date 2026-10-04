@@ -46,6 +46,8 @@ final class OrbGeometryTests: XCTestCase {
         XCTAssertEqual(start.progress, 0)
         XCTAssertEqual(start.inset, 0)
         XCTAssertEqual(start.glassOpacity, 0)
+        XCTAssertEqual(start.faceOpacity, 0)
+        XCTAssertEqual(start.lensSize, origin)
         var previousProgress: CGFloat = 0
         var previousOpacity = 0.0
         for step in 0...100 {
@@ -55,6 +57,10 @@ final class OrbGeometryTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(shell.progress, previousProgress)
             XCTAssertGreaterThanOrEqual(shell.glassOpacity, previousOpacity)
             XCTAssertLessThanOrEqual(shell.radius * 2 + shell.inset * 2, min(size.width, size.height))
+            XCTAssertEqual(shell.lensSize.width + 2 * shell.inset, size.width, accuracy: 0.001)
+            XCTAssertEqual(shell.lensSize.height + 2 * shell.inset, size.height, accuracy: 0.001)
+            XCTAssertGreaterThanOrEqual(shell.faceOpacity, 0)
+            XCTAssertLessThanOrEqual(shell.faceOpacity, shell.glassOpacity)
             previousProgress = shell.progress; previousOpacity = shell.glassOpacity
         }
         let end = CaptureCollapseGeometry(size: CGSize(width: 72, height: 72), origin: origin)
@@ -62,6 +68,8 @@ final class OrbGeometryTests: XCTestCase {
         XCTAssertEqual(end.inset, 8)
         XCTAssertEqual(end.radius, 28)
         XCTAssertEqual(end.glassOpacity, 1)
+        XCTAssertEqual(end.faceOpacity, 1)
+        XCTAssertEqual(end.lensSize, CGSize(width: 56, height: 56))
     }
 
     func testSavedBannerCollapseUsesWidthWhenHeightAlreadySmallerThanOrb() {
@@ -69,10 +77,44 @@ final class OrbGeometryTests: XCTestCase {
         XCTAssertEqual(CaptureCollapseGeometry(size: origin, origin: origin).progress, 0)
         let midway = CaptureCollapseGeometry(size: CGSize(width: 146, height: 68), origin: origin)
         XCTAssertEqual(midway.progress, 0.5)
-        XCTAssertEqual(midway.glassOpacity, 0)
+        XCTAssertLessThan(midway.glassOpacity, 0.01)
+        XCTAssertEqual(midway.faceOpacity, 0)
         let tiny = CaptureCollapseGeometry(size: CGSize(width: 32, height: 32), origin: origin)
         XCTAssertGreaterThanOrEqual(tiny.radius, 0)
         XCTAssertLessThanOrEqual(tiny.radius * 2 + tiny.inset * 2, 32)
+    }
+
+    func testClosingMaterialHandoffCompletesBeforeWindowSettles() {
+        // Both surfaces share their bounds throughout the handoff, including a
+        // tall dictionary result and the shorter-than-orb success banner.
+        for origin in [CGSize(width: 440, height: 420), CGSize(width: 220, height: 64)] {
+            let size = CGSize(width: origin.width + (72 - origin.width) * 0.98,
+                              height: origin.height + (72 - origin.height) * 0.98)
+            let shell = CaptureCollapseGeometry(size: size, origin: origin)
+            XCTAssertEqual(shell.glassOpacity, 1)
+            XCTAssertEqual(shell.faceOpacity, 1)
+            XCTAssertLessThan(abs(shell.radius - min(shell.lensSize.width, shell.lensSize.height) / 2), 0.1)
+        }
+    }
+
+    func testEyesBlinkWithSmallStaggerAndSuccessEasesBackToNeutral() {
+        func pose(_ time: Double, success: Bool = false) -> OrbFacePose {
+            OrbFacePose.sample(elapsed: time, returnElapsed: success ? time : nil,
+                successful: success, hovered: false, dragging: false, displacement: 0, reduced: false)
+        }
+        let closing = pose(5.79)
+        XCTAssertLessThan(closing.openness, closing.rightOpenness)
+        XCTAssertEqual(pose(5.905).rightOpenness, 1, accuracy: 0.001)
+        XCTAssertEqual(pose(0, success: true).lift, 0)
+        XCTAssertEqual(pose(0.4, success: true).lift, -0.8)
+        XCTAssertEqual(pose(1.5, success: true).lift, 0)
+        // Smooth attack/release avoid sudden facial velocity changes.
+        XCTAssertLessThan(pose(0.001, success: true).smile, 0.001)
+        XCTAssertLessThan(pose(1.499, success: true).smile, 0.001)
+        let reduced = OrbFacePose.sample(elapsed: 5.79, returnElapsed: 0.4, successful: true,
+            hovered: true, dragging: true, displacement: 5, reduced: true)
+        XCTAssertEqual(reduced.rightOpenness, 1)
+        XCTAssertEqual(reduced.lift, 0)
     }
 
     func testClosingSpringSettlesWithLessThanOnePointUndershoot() {

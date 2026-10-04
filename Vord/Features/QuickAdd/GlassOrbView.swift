@@ -75,6 +75,10 @@ struct GlassOrbView: View {
     var onDragChange: (CGPoint) -> Void
     var onDragEnd: (CGPoint) -> Void
     var embedded = false
+    var lensSize = CGSize(width: 56, height: 56)
+    var lensRadius: CGFloat = 28
+    var faceOpacity: Double = 1
+    var opticsOpacity: Double = 1
     @State private var hovered = false
     @State private var visible = false
     @State private var pointerOffset = CGSize.zero
@@ -86,15 +90,16 @@ struct GlassOrbView: View {
     var body: some View {
         ZStack {
             if reduceTransparency {
-                Circle().fill(colorScheme == .dark ? Color(white: 0.18) : Color(white: 0.94))
+                RoundedRectangle(cornerRadius: lensRadius, style: .continuous)
+                    .fill(colorScheme == .dark ? Color(white: 0.18) : Color(white: 0.94))
             } else if #available(macOS 26, *) {
                 // Keep the live compositor surface out of SwiftUI masks, blur and
                 // shadow passes. AppKit owns its curved edge and optical response.
-                OrbLiquidGlass(dark: colorScheme == .dark, interactive: !reduceMotion,
+                OrbLiquidGlass(dark: colorScheme == .dark, interactive: !reduceMotion, radius: lensRadius,
                     onOpen: onOpen, onBegin: onDragBegin, onChange: onDragChange,
                     onEnd: onDragEnd, onPointer: trackPointer)
             } else {
-                OrbGlassMaterial(dark: colorScheme == .dark)
+                OrbGlassMaterial(dark: colorScheme == .dark, radius: lensRadius)
                     .shadow(color: .black.opacity(0.09), radius: 4, y: 2)
             }
             TimelineView(.animation(minimumInterval: 1 / 24, paused: reduceMotion || !visible)) { clock in
@@ -103,14 +108,15 @@ struct GlassOrbView: View {
                     if !reduceTransparency {
                         OrbOptics(phase: reduceMotion ? 0 : phase, displacement: CGSize(width: motion.refraction.width + pointerOffset.width,
                             height: motion.refraction.height + pointerOffset.height))
+                            .opacity(opticsOpacity)
                     }
-                    eyes(phase: phase)
+                    eyes(phase: phase).opacity(faceOpacity)
                 }
                 .clipShape(Circle())
                 .allowsHitTesting(false)
             }
         }
-        .frame(width: 56, height: 56)
+        .frame(width: lensSize.width, height: lensSize.height)
         .overlay {
             if reduceTransparency {
                 pointerSurface
@@ -136,6 +142,7 @@ struct GlassOrbView: View {
                           onEnd: onDragEnd, onPointer: trackPointer)
     }
     private func trackPointer(_ point: CGPoint?) {
+        hovered = point != nil
         guard !reduceMotion else { return }
         withAnimation(.smooth(duration: 0.18)) {
             pointerOffset = point.map { CGSize(width: $0.x * 2.4, height: $0.y * 2.4) } ?? .zero
@@ -151,14 +158,14 @@ struct GlassOrbView: View {
         return HStack(spacing: 7) {
             OrbEye(openness: pose.openness, smile: pose.smile)
                 .stroke(style: StrokeStyle(lineWidth: 4.2, lineCap: .round))
-            OrbEye(openness: pose.openness, smile: pose.smile)
+            OrbEye(openness: pose.rightOpenness, smile: pose.smile)
                 .stroke(style: StrokeStyle(lineWidth: 4.2, lineCap: .round))
         }
         .frame(width: 28, height: 17)
         .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.88) : Color(white: 0.16).opacity(0.88))
         .rotationEffect(.degrees(pose.tilt))
         .offset(x: motion.refraction.width * 0.22 + pointerOffset.width * 0.8 + pose.gaze.width,
-                y: 1 + motion.refraction.height * 0.22 + pointerOffset.height * 0.8 + pose.gaze.height)
+                y: 1 + motion.refraction.height * 0.22 + pointerOffset.height * 0.8 + pose.gaze.height + pose.lift)
     }
 
 }
@@ -174,10 +181,12 @@ private struct OrbEye: Shape {
     func path(in rect: CGRect) -> Path {
         let centre = CGPoint(x: rect.midX, y: rect.midY)
         let halfHeight = 5.8 * openness * (1 - smile)
+        let closed = pow(max(0, 1 - openness), 2) * (1 - smile)
+        let halfWidth = 3.7 * smile + 3.2 * closed
         var path = Path()
-        path.move(to: CGPoint(x: centre.x - 3.7 * smile, y: centre.y - halfHeight + 1.4 * smile))
-        path.addQuadCurve(to: CGPoint(x: centre.x + 3.7 * smile, y: centre.y + halfHeight + 1.4 * smile),
-                          control: CGPoint(x: centre.x, y: centre.y - 5.2 * smile))
+        path.move(to: CGPoint(x: centre.x - halfWidth, y: centre.y - halfHeight + 1.4 * smile))
+        path.addQuadCurve(to: CGPoint(x: centre.x + halfWidth, y: centre.y + halfHeight + 1.4 * smile),
+                          control: CGPoint(x: centre.x, y: centre.y - 5.2 * smile + 1.2 * closed))
         return path
     }
 }
@@ -219,6 +228,7 @@ private struct OrbOptics: View {
 private struct OrbLiquidGlass: NSViewRepresentable {
     var dark: Bool
     var interactive: Bool
+    var radius: CGFloat
     var onOpen: () -> Void
     var onBegin: (CGPoint) -> Void
     var onChange: (CGPoint) -> Void
@@ -237,6 +247,7 @@ private struct OrbLiquidGlass: NSViewRepresentable {
         return view
     }
     func updateNSView(_ view: NSGlassEffectView, context: Context) {
+        (view as? OrbLiquidLensView)?.lensRadius = radius
         if let pointer = view.contentView as? OrbPointerView {
             pointer.onOpen = onOpen; pointer.onBegin = onBegin
             pointer.onChange = onChange; pointer.onEnd = onEnd; pointer.onPointer = onPointer
@@ -251,14 +262,18 @@ private struct OrbLiquidGlass: NSViewRepresentable {
 
 @available(macOS 26, *)
 private final class OrbLiquidLensView: NSGlassEffectView {
+    var lensRadius: CGFloat = 28 {
+        didSet { cornerRadius = min(lensRadius, min(bounds.width, bounds.height) / 2) }
+    }
     override func layout() {
         super.layout()
-        cornerRadius = min(bounds.width, bounds.height) / 2
+        cornerRadius = min(lensRadius, min(bounds.width, bounds.height) / 2)
     }
 }
 
 private struct OrbGlassMaterial: NSViewRepresentable {
     var dark: Bool
+    var radius: CGFloat
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = OrbEffectView()
         view.material = .underWindowBackground; view.blendingMode = .behindWindow; view.state = .active
@@ -267,6 +282,7 @@ private struct OrbGlassMaterial: NSViewRepresentable {
     }
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) { updateMaterial(nsView) }
     private func updateMaterial(_ view: NSVisualEffectView) {
+        (view as? OrbEffectView)?.lensRadius = radius
         let name: NSAppearance.Name = dark ? .darkAqua : .aqua
         if view.appearance?.name != name { view.appearance = NSAppearance(named: name) }
         let opacity = dark ? 0.48 : 0.34
@@ -275,10 +291,13 @@ private struct OrbGlassMaterial: NSViewRepresentable {
 }
 
 private final class OrbEffectView: NSVisualEffectView {
+    var lensRadius: CGFloat = 28 {
+        didSet { layer?.cornerRadius = min(lensRadius, min(bounds.width, bounds.height) / 2) }
+    }
     override func layout() {
         super.layout()
         wantsLayer = true
-        layer?.cornerRadius = min(bounds.width, bounds.height) / 2
+        layer?.cornerRadius = min(lensRadius, min(bounds.width, bounds.height) / 2)
         layer?.masksToBounds = true
     }
 }
