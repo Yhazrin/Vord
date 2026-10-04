@@ -21,6 +21,8 @@ final class LearningAgent: ObservableObject {
     @Published private(set) var error: String?
     @Published private(set) var storageWarning: String?
     @Published private(set) var importingMessageID: UUID?
+    // The composer survives page/section changes without storing unfinished text on disk.
+    @Published var conversationDraft = ""
     let quiz: IslandQuizModel
     private let repository: any VocabularyRepository
     private let generate: Generate
@@ -113,6 +115,12 @@ final class LearningAgent: ObservableObject {
             } catch is CancellationError { /* The user's question remains available for a retry. */ }
             catch { self.error = error.localizedDescription }
         }
+    }
+    func sendDraft() {
+        guard !isThinking, importingMessageID == nil else { return }
+        send(conversationDraft)
+        // Rejected/oversized input stays editable. A reply never clears the next draft.
+        if isThinking { conversationDraft = "" }
     }
     func cancel() { request?.cancel() }
     func editImport(messageID: UUID, itemID: UUID, english: String? = nil, chinese: String? = nil, selected: Bool? = nil) {

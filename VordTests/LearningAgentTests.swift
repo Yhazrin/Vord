@@ -2,6 +2,39 @@ import XCTest
 @testable import Vord
 
 final class LearningAgentTests: XCTestCase {
+    @MainActor
+    func testComposerKeepsRejectedDraftAndNextDraftAfterReply() async throws {
+        let repo = try repository(), url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        var requests = 0
+        let agent = LearningAgent(repository: repo, url: url) { _, _ in
+            requests += 1
+            return AITextResponse(text: "可以。", modelID: "fixture")
+        }
+        let tooLong = String(repeating: "x", count: 16001)
+        agent.conversationDraft = tooLong
+        agent.sendDraft()
+        XCTAssertEqual(agent.conversationDraft, tooLong)
+        XCTAssertFalse(agent.isThinking)
+        XCTAssertTrue(agent.messages.isEmpty)
+        agent.conversationDraft = "解释 stagnant"
+        agent.sendDraft()
+        XCTAssertEqual(agent.conversationDraft, "")
+        XCTAssertTrue(agent.isThinking)
+        agent.conversationDraft = "下一个问题还没有写完"
+        agent.sendDraft() // Busy requests cannot erase or send the following draft.
+        while agent.isThinking { await Task.yield() }
+        XCTAssertEqual(requests, 1)
+        XCTAssertEqual(agent.conversationDraft, "下一个问题还没有写完")
+        XCTAssertEqual(agent.messages.count, 2)
+        await agent.refresh()
+        await agent.proposePlan(dailyLimit: 10)
+        XCTAssertEqual(agent.conversationDraft, "下一个问题还没有写完")
+        let restored = LearningAgent(repository: repo, url: url) { _, _ in throw AIError.noProvider }
+        XCTAssertTrue(restored.conversationDraft.isEmpty)
+        XCTAssertEqual(restored.messages, agent.messages)
+    }
+
     private func repository() throws -> SQLiteVocabularyRepository {
         SQLiteVocabularyRepository(database: try AppDatabase(path: ":memory:"), onChange: {})
     }

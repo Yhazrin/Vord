@@ -123,7 +123,6 @@ struct AgentConversation: View {
     @ObservedObject var agent: LearningAgent
     var compact = false
     var focusRequest = 0
-    @State private var draft = ""
     @FocusState private var composing: Bool
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
 
@@ -175,7 +174,7 @@ struct AgentConversation: View {
                 }
             }
             HStack(alignment: .bottom, spacing: 8) {
-                TextField("Ask a question or paste words to import…", text: $draft, axis: .vertical)
+                TextField("Ask a question or paste words to import…", text: $agent.conversationDraft, axis: .vertical)
                     .lineLimit(1...4).textFieldStyle(.plain).font(AppTypography.body)
                     .padding(12).background(AppColors.inputSurface, in: RoundedRectangle(cornerRadius: 12))
                     .focused($composing).onSubmit(send)
@@ -186,7 +185,7 @@ struct AgentConversation: View {
                         Image(systemName: "arrow.up").font(AppTypography.ui(size: 14, weight: .semibold))
                             .frame(width: 36, height: 36).foregroundStyle(AppColors.primaryButtonText)
                             .background(AppColors.primaryButton, in: Circle())
-                    }.buttonStyle(MotionPressStyle()).disabled(draft.trimmed.isEmpty || agent.importingMessageID != nil).help("Send message").accessibilityLabel("Send message")
+                    }.buttonStyle(MotionPressStyle()).disabled(agent.conversationDraft.trimmed.isEmpty || agent.importingMessageID != nil).help("Send message").accessibilityLabel("Send message")
                 }
             }
         }
@@ -194,10 +193,7 @@ struct AgentConversation: View {
         .onChange(of: focusRequest) { _, _ in composing = true }
     }
     private func send() {
-        guard !agent.isThinking, !draft.trimmed.isEmpty else { return }
-        let question = draft
-        agent.send(question)
-        if agent.isThinking { draft = "" }
+        agent.sendDraft()
     }
 }
 

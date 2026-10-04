@@ -284,6 +284,7 @@ final class QuickAddController: ObservableObject {
     private weak var companionAnchor: NSView?
     private var onCompanionOpen: (() -> Void)?
     private var companionDetachedByUser = false
+    private var companionSheetCovered = false
     private var companionActivity: OrbActivity = .idle
 
     init(repository: any VocabularyRepository, translation: TranslationService, settings: AppSettings) {
@@ -395,16 +396,17 @@ final class QuickAddController: ObservableObject {
         panel.orderFrontRegardless()
     }
 
-    func attachCompanion(anchor: NSView, onOpen: @escaping () -> Void) {
+    func attachCompanion(anchor: NSView, sheetCovered: Bool, onOpen: @escaping () -> Void) {
         guard !AppDependencies.isTestHost else { return }
         if companionAnchor !== anchor { companionDetachedByUser = false }
         companionAnchor = anchor; onCompanionOpen = onOpen
+        companionSheetCovered = sheetCovered
         placeCollapsedOrb()
     }
 
     func detachCompanion(anchor: NSView) {
         guard companionAnchor === anchor else { return }
-        companionAnchor = nil; onCompanionOpen = nil; companionDetachedByUser = false
+        companionAnchor = nil; onCompanionOpen = nil; companionDetachedByUser = false; companionSheetCovered = false
         placeCollapsedOrb()
     }
 
@@ -425,7 +427,7 @@ final class QuickAddController: ObservableObject {
     }
 
     private func availableCompanionFrame() -> NSRect? {
-        guard NSApp.isActive, let anchor = companionAnchor, let window = anchor.window,
+        guard !companionSheetCovered, NSApp.isActive, let anchor = companionAnchor, let window = anchor.window,
               window.isVisible, !window.isMiniaturized, window.attachedSheet == nil, window.occlusionState.contains(.visible),
               !anchor.isHiddenOrHasHiddenAncestor else { return nil }
         let frame = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))

@@ -49,18 +49,26 @@ private struct CompanionOrbAnchor: NSViewRepresentable {
         var onOpen: (() -> Void)?
         private var observers: [NSObjectProtocol] = []
         private var updateScheduled = false
+        private var sheetCovered = false
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             removeObservers()
             guard let window else { controller?.detachCompanion(anchor: self); return }
+            sheetCovered = window.attachedSheet != nil
             for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification,
                          NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification,
                          NSWindow.didChangeOcclusionStateNotification,
                          NSWindow.willBeginSheetNotification, NSWindow.didEndSheetNotification] {
                 observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.refresh() }
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        // willBegin arrives before attachedSheet is guaranteed to be set.
+                        if name == NSWindow.willBeginSheetNotification { self.sheetCovered = true }
+                        if name == NSWindow.didEndSheetNotification { self.sheetCovered = false }
+                        self.refresh()
+                    }
                 })
             }
             observers.append(NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
@@ -80,7 +88,7 @@ private struct CompanionOrbAnchor: NSViewRepresentable {
                 guard let self else { return }
                 self.updateScheduled = false
                 guard self.window != nil, self.bounds.width > 0 else { return }
-                self.controller?.attachCompanion(anchor: self) { [weak self] in self?.onOpen?() }
+                self.controller?.attachCompanion(anchor: self, sheetCovered: self.sheetCovered) { [weak self] in self?.onOpen?() }
             }
         }
         func removeObservers() {
