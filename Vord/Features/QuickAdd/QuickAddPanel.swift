@@ -679,7 +679,12 @@ final class QuickAddController: ObservableObject {
         if let encoded = try? JSONEncoder().encode(dock) { UserDefaults.standard.set(encoded, forKey: "quickCapture.orbDock") }
         // Strong damping draws the sphere to an edge; release speed is bounded to keep it on screen.
         let momentum = CGPoint(x: max(-240, min(240, dragVelocity.x)), y: max(-160, min(160, dragVelocity.y)))
-        spring.move(panel, to: dock.frame(in: screen.visibleFrame), initialVelocity: momentum)
+        // The pointer is already released. Let clicks reach the document while
+        // the orb glides home, just as during automatic Companion handoff.
+        panel.ignoresMouseEvents = true
+        spring.move(panel, to: dock.frame(in: screen.visibleFrame), initialVelocity: momentum) { [weak panel] in
+            panel?.ignoresMouseEvents = false
+        }
     }
 
     private func ensurePanel() -> QuickAddPanel {
