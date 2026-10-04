@@ -6,6 +6,12 @@ import QuartzCore
 final class OrbMotion: ObservableObject {
     @Published private(set) var refraction = CGSize.zero
     @Published private(set) var isDragging = false
+    @Published private(set) var returnedAt: Double?
+    @Published private(set) var returnedSuccessfully = false
+    func didReturn(successful: Bool) {
+        returnedSuccessfully = successful
+        returnedAt = Date().timeIntervalSinceReferenceDate
+    }
     private var position = [0.0, 0.0]
     private var velocity = [0.0, 0.0]
     private var target = [0.0, 0.0]
@@ -70,6 +76,7 @@ struct GlassOrbView: View {
     @State private var hovered = false
     @State private var visible = false
     @State private var pointerOffset = CGSize.zero
+    @State private var appearedAt = Date().timeIntervalSinceReferenceDate
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
@@ -89,10 +96,10 @@ struct GlassOrbView: View {
                     .shadow(color: .black.opacity(0.09), radius: 4, y: 2)
             }
             TimelineView(.animation(minimumInterval: 1 / 24, paused: reduceMotion || !visible)) { clock in
-                let phase = reduceMotion ? 0 : clock.date.timeIntervalSinceReferenceDate
+                let phase = clock.date.timeIntervalSinceReferenceDate
                 ZStack {
                     if !reduceTransparency {
-                        OrbOptics(phase: phase, displacement: CGSize(width: motion.refraction.width + pointerOffset.width,
+                        OrbOptics(phase: reduceMotion ? 0 : phase, displacement: CGSize(width: motion.refraction.width + pointerOffset.width,
                             height: motion.refraction.height + pointerOffset.height))
                     }
                     eyes(phase: phase)
@@ -112,7 +119,7 @@ struct GlassOrbView: View {
             }
         }
         .onHover { hovered = $0 }
-        .onAppear { visible = true }
+        .onAppear { visible = true; appearedAt = Date().timeIntervalSinceReferenceDate }
         .onDisappear { visible = false }
         .help("Add a word · Drag to move")
         .accessibilityElement(children: .ignore)
@@ -134,18 +141,41 @@ struct GlassOrbView: View {
     }
 
     private func eyes(phase: Double) -> some View {
-        let cycle = phase.truncatingRemainder(dividingBy: 7.6)
-        let blink = reduceMotion || cycle > 0.18 ? 1 : max(0.2, abs(cos(cycle / 0.18 * .pi)))
-        return HStack(spacing: 7) {
-            Capsule().frame(width: 3.2, height: 8.5)
-            Capsule().frame(width: 3.2, height: 8.5)
+        let pose = OrbFacePose.sample(elapsed: phase - appearedAt,
+            returnElapsed: motion.returnedAt.map { max(0, phase - $0) },
+            successful: motion.returnedSuccessfully, hovered: hovered,
+            dragging: motion.isDragging, displacement: motion.refraction.width, reduced: reduceMotion)
+        return HStack(spacing: 5) {
+            OrbEye(openness: pose.openness, smile: pose.smile)
+                .stroke(style: StrokeStyle(lineWidth: 3.1, lineCap: .round))
+            OrbEye(openness: pose.openness, smile: pose.smile)
+                .stroke(style: StrokeStyle(lineWidth: 3.1, lineCap: .round))
         }
-        .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.82) : Color(white: 0.2).opacity(0.82))
-        .scaleEffect(x: 1, y: blink)
-        .shadow(color: .white.opacity(0.28), radius: 0.4, y: 0.6)
-        .offset(x: motion.refraction.width * 0.22 + pointerOffset.width * 0.7,
-                y: 1 + motion.refraction.height * 0.22 + pointerOffset.height * 0.7 + (hovered ? -0.6 : 0))
-        .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: hovered)
+        .frame(width: 23, height: 13)
+        .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.88) : Color(white: 0.16).opacity(0.88))
+        .rotationEffect(.degrees(pose.tilt))
+        .offset(x: motion.refraction.width * 0.22 + pointerOffset.width * 0.8,
+                y: 1 + motion.refraction.height * 0.22 + pointerOffset.height * 0.8)
+    }
+
+}
+
+/// One continuous stroke turns from a vertical eye into a quiet happy arch.
+private struct OrbEye: Shape {
+    var openness: Double
+    var smile: Double
+    var animatableData: AnimatablePair<Double, Double> {
+        get { AnimatablePair(openness, smile) }
+        set { openness = newValue.first; smile = newValue.second }
+    }
+    func path(in rect: CGRect) -> Path {
+        let centre = CGPoint(x: rect.midX, y: rect.midY)
+        let halfHeight = 4.4 * openness * (1 - smile)
+        var path = Path()
+        path.move(to: CGPoint(x: centre.x - 3.3 * smile, y: centre.y - halfHeight + 1.4 * smile))
+        path.addQuadCurve(to: CGPoint(x: centre.x + 3.3 * smile, y: centre.y + halfHeight + 1.4 * smile),
+                          control: CGPoint(x: centre.x, y: centre.y - 4.5 * smile))
+        return path
     }
 }
 

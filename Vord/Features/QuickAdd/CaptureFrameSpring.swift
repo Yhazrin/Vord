@@ -11,18 +11,26 @@ final class CaptureFrameSpring {
     private var position = [Double](repeating: 0, count: 4)
     private var velocity = [Double](repeating: 0, count: 4)
     private var lastTime: CFTimeInterval = 0
+    private var closing = false
+    private var completion: (() -> Void)?
 
     func stop() {
         timer?.invalidate(); timer = nil
         velocity = [Double](repeating: 0, count: 4)
+        completion = nil
     }
 
-    func move(_ window: NSWindow, to frame: NSRect, initialVelocity: CGPoint? = nil) {
+    func move(_ window: NSWindow, to frame: NSRect, initialVelocity: CGPoint? = nil,
+              closing: Bool = false, onCompletion: (() -> Void)? = nil) {
+        self.closing = closing
+        completion = onCompletion
         let next = [frame.minX, frame.minY, frame.width, frame.height].map(Double.init)
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || !window.isVisible {
             timer?.invalidate(); timer = nil
             velocity = [Double](repeating: 0, count: 4)
             window.setPanelFrame(frame)
+            completion = nil
+            onCompletion?()
             return
         }
         if self.window !== window || timer == nil {
@@ -51,7 +59,7 @@ final class CaptureFrameSpring {
         lastTime = now
         for index in 0..<4 {
             let state = CaptureSpringCurve.advance(position: position[index], velocity: velocity[index],
-                target: target[index], seconds: dt)
+                target: target[index], seconds: dt, damping: closing ? 0.94 : 0.82)
             position[index] = state.position
             velocity[index] = state.velocity
         }
@@ -60,7 +68,11 @@ final class CaptureFrameSpring {
         if settled { position = target; velocity = [Double](repeating: 0, count: 4) }
         window.setPanelFrame(NSRect(x: position[0], y: position[1],
             width: max(32, position[2]), height: max(32, position[3])))
-        if settled { timer?.invalidate(); timer = nil }
+        if settled {
+            timer?.invalidate(); timer = nil
+            let finished = completion; completion = nil
+            finished?()
+        }
     }
 
     deinit { timer?.invalidate() }
@@ -68,10 +80,9 @@ final class CaptureFrameSpring {
 
 enum CaptureSpringCurve {
     /// Closed form integration is stable when a display frame is delayed.
-    static func advance(position: Double, velocity: Double, target: Double, seconds: Double)
+    static func advance(position: Double, velocity: Double, target: Double, seconds: Double, damping: Double = 0.82)
         -> (position: Double, velocity: Double) {
         let omega = 24.0
-        let damping = 0.82
         let decay = damping * omega
         let damped = omega * sqrt(1 - damping * damping)
         let displacement = position - target

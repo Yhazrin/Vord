@@ -49,3 +49,53 @@ enum OrbPhysics {
             envelope * (-decay * (a * c + b * s) + frequency * (-a * s + b * c)))
     }
 }
+
+
+/// The shell follows actual window dimensions, not a second animation clock.
+struct CaptureCollapseGeometry {
+    var progress: CGFloat
+    var inset: CGFloat
+    var radius: CGFloat
+    var glassOpacity: Double
+
+    init(size: CGSize, origin: CGSize) {
+        let target = OrbDockPosition.diameter
+        let widthTravel = max(1, origin.width - target)
+        let heightTravel = max(1, origin.height - target)
+        let remaining = max((size.width - target) / widthTravel, (size.height - target) / heightTravel)
+        progress = min(1, max(0, 1 - remaining))
+        inset = 8 * Self.smooth((progress - 0.65) / 0.35)
+        radius = min(24 + 4 * progress, max(0, (min(size.width, size.height) - 2 * inset) / 2))
+        glassOpacity = Double(Self.smooth((progress - 0.72) / 0.25))
+    }
+    private static func smooth(_ value: CGFloat) -> CGFloat {
+        let t = min(1, max(0, value))
+        return t * t * (3 - 2 * t)
+    }
+}
+
+struct OrbFacePose {
+    var openness: Double
+    var smile: Double
+    var tilt: Double
+
+    static func sample(elapsed: Double, returnElapsed: Double?, successful: Bool,
+                       hovered: Bool, dragging: Bool, displacement: Double, reduced: Bool) -> Self {
+        if reduced { return Self(openness: 1, smile: 0, tilt: 0) }
+        let cycle = max(0, elapsed).truncatingRemainder(dividingBy: 7.1)
+        func blink(_ time: Double, start: Double, duration: Double) -> Double {
+            guard time >= start, time < start + duration else { return 1 }
+            return 1 - 0.93 * pow(sin((time - start) / duration * .pi), 2)
+        }
+        var opening = min(blink(cycle, start: 5.7, duration: 0.18), blink(cycle, start: 6.02, duration: 0.14))
+        if let sinceReturn = returnElapsed, !successful {
+            opening = min(opening, blink(sinceReturn, start: 0.12, duration: 0.2))
+        }
+        let smile: Double
+        if successful, let sinceReturn = returnElapsed, sinceReturn >= 0, sinceReturn < 1.5 {
+            smile = min(1, sinceReturn / 0.16) * min(1, max(0, (1.5 - sinceReturn) / 0.35))
+        } else { smile = 0 }
+        return Self(openness: opening * (dragging ? 0.74 : (hovered ? 1.06 : 1)),
+                    smile: smile, tilt: dragging ? max(-4, min(4, displacement * 0.75)) : 0)
+    }
+}

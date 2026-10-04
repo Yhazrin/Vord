@@ -460,27 +460,48 @@ final class QuickAddController {
     }
 
     private func setMode(_ mode: QuickCapturePresentation.Mode) {
+        guard !(mode == .collapsed && presentation.mode == .collapsing) else { return }
         if dragging { finishDrag(dragLastPoint) }
         if mode != .collapsed { orbMotion.reset() }
         panel?.allowsKeyboardFocus = mode == .adding
         if mode == .adding { panel?.requestCaptureFocus() }
         if mode != .adding { panel?.cancelCaptureFocus() }
-        panel?.hasShadow = mode != .collapsed
         let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        withAnimation(reduced ? nil : .spring(duration: 0.42, bounce: 0.12)) { presentation.mode = mode }
+        let returningFromSave = presentation.mode == .saved
+        let collapsing = mode == .collapsed && presentation.mode != .collapsed && !reduced && panel?.isVisible == true
+        if collapsing {
+            presentation.collapseOrigin = panel?.frame.size ?? CGSize(width: 440, height: 300)
+            presentation.collapseCelebrates = presentation.mode == .saved
+        }
+        panel?.hasShadow = collapsing || mode != .collapsed
+        let nextMode: QuickCapturePresentation.Mode = collapsing ? .collapsing : mode
+        withAnimation(reduced ? nil : (collapsing ? .easeOut(duration: 0.09) : .spring(duration: 0.42, bounce: 0.12))) {
+            presentation.mode = nextMode
+        }
+        if mode == .collapsed && !collapsing { orbMotion.didReturn(successful: returningFromSave) }
         resize()
     }
 
     private func resize() {
         guard !dragging, let panel else { return }
-        spring.move(panel, to: targetFrame(for: presentation.mode))
+        let collapsing = presentation.mode == .collapsing
+        spring.move(panel, to: targetFrame(for: presentation.mode), closing: collapsing,
+                    onCompletion: collapsing ? { [weak self] in self?.finishCollapse() } : nil)
+    }
+
+    private func finishCollapse() {
+        guard presentation.mode == .collapsing else { return }
+        orbMotion.didReturn(successful: presentation.collapseCelebrates)
+        presentation.mode = .collapsed
+        panel?.hasShadow = false
+        hideCollapsedWhenDisabled()
     }
 
     private func targetFrame(for mode: QuickCapturePresentation.Mode) -> NSRect {
         let visible = (screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 720)
         let size: CGSize
         switch mode {
-        case .collapsed: size = CGSize(width: OrbDockPosition.diameter, height: OrbDockPosition.diameter)
+        case .collapsed, .collapsing: size = CGSize(width: OrbDockPosition.diameter, height: OrbDockPosition.diameter)
         case .prompt: size = CGSize(width: 308, height: 100)
         case .saved: size = CGSize(width: 220, height: 64)
         case .adding: size = CGSize(width: 440, height: model.panelHeight)
@@ -488,7 +509,7 @@ final class QuickAddController {
         let width = min(size.width, max(48, visible.width - 40))
         let height = min(size.height, max(48, visible.height - 52))
         let orb = dock.frame(in: visible)
-        if mode == .collapsed { return orb }
+        if mode == .collapsed || mode == .collapsing { return orb }
         let x = dock.edge == .left ? orb.minX : orb.maxX - width
         let y = min(max(orb.midY - height / 2, visible.minY + 12), visible.maxY - height - 12)
         return NSRect(x: min(max(x, visible.minX + 8), visible.maxX - width - 8),
@@ -644,9 +665,11 @@ private final class QuickAddPanel: NSPanel, CaptureInputFocusOwner {
 
 @MainActor
 private final class QuickCapturePresentation: ObservableObject {
-    enum Mode { case collapsed, prompt, adding, saved }
+    enum Mode { case collapsed, collapsing, prompt, adding, saved }
     @Published var mode: Mode = .collapsed
     @Published var word = ""
+    var collapseOrigin = CGSize(width: 440, height: 300)
+    var collapseCelebrates = false
 }
 
 private struct QuickCaptureShell: View {
@@ -691,14 +714,30 @@ private struct QuickCaptureShell: View {
                 }.padding(16).transition(.opacity)
                 .accessibilityLabel("\(presentation.word) added to your library")
             } else {
-                GlassOrbView(motion: orbMotion, onOpen: onOpen, onDragBegin: onDragBegin,
-                    onDragChange: onDragChange, onDragEnd: onDragEnd).transition(.opacity)
+                GeometryReader { geometry in
+                    let collapsing = presentation.mode == .collapsing
+                    let shell = CaptureCollapseGeometry(size: geometry.size, origin: presentation.collapseOrigin)
+                    ZStack {
+                        if collapsing {
+                            RoundedRectangle(cornerRadius: shell.radius, style: .continuous)
+                                .fill(AppColors.contentBackground)
+                                .padding(shell.inset)
+                                .opacity(1 - shell.glassOpacity)
+                                .contentShape(Rectangle()).onTapGesture(perform: onOpen)
+                        }
+                        GlassOrbView(motion: orbMotion, onOpen: onOpen, onDragBegin: onDragBegin,
+                            onDragChange: onDragChange, onDragEnd: onDragEnd)
+                            .opacity(collapsing ? shell.glassOpacity : 1)
+                            .allowsHitTesting(!collapsing)
+                            .accessibilityHidden(collapsing)
+                    }.frame(width: geometry.size.width, height: geometry.size.height)
+                }.transition(.identity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(AppColors.primaryText)
         .background {
-            if !compact { RoundedRectangle(cornerRadius: 24, style: .continuous).fill(AppColors.contentBackground) }
+            if !compact && presentation.mode != .collapsing { RoundedRectangle(cornerRadius: 24, style: .continuous).fill(AppColors.contentBackground) }
         }
         .onExitCommand(perform: onClose)
     }
