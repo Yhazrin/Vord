@@ -2,6 +2,44 @@ import XCTest
 @testable import Vord
 
 final class OrbGeometryTests: XCTestCase {
+    func testCompanionSlotRetainsCircularBoundsAcrossWindowAndScreenCoordinates() {
+        let anchor = CGRect(x: -1200, y: 456, width: 80, height: 80)
+        let original = OrbCompanionGeometry.frame(in: anchor)
+        let moved = OrbCompanionGeometry.frame(in: anchor.offsetBy(dx: 340, dy: -120))
+        XCTAssertEqual(original.size, CGSize(width: 72, height: 72))
+        XCTAssertEqual(original.midX, anchor.midX)
+        XCTAssertEqual(original.midY, anchor.midY)
+        XCTAssertEqual(moved, original.offsetBy(dx: 340, dy: -120))
+        let resized = OrbCompanionGeometry.frame(in: CGRect(x: 100, y: 200, width: 120, height: 90))
+        XCTAssertEqual(resized.width, resized.height)
+        XCTAssertEqual(resized.size, original.size)
+        XCTAssertEqual(resized.midX, 160)
+    }
+
+    func testCompanionDropOnlyRejoinsNearReservedSlot() {
+        let target = CGRect(x: 1020, y: 600, width: 72, height: 72)
+        XCTAssertTrue(OrbCompanionGeometry.acceptsDrop(target, destination: target))
+        XCTAssertTrue(OrbCompanionGeometry.acceptsDrop(target.offsetBy(dx: -45, dy: 20), destination: target))
+        XCTAssertFalse(OrbCompanionGeometry.acceptsDrop(target.offsetBy(dx: -120, dy: 0), destination: target))
+        XCTAssertFalse(OrbCompanionGeometry.acceptsDrop(target.offsetBy(dx: 0, dy: 120), destination: target))
+    }
+
+    func testCompanionActivityGazeStaysSubtleAndStopsForDragOrReducedMotion() {
+        for time in stride(from: 0.0, through: 30, by: 0.1) {
+            let pose = OrbFacePose.sample(elapsed: time, returnElapsed: nil, successful: false,
+                hovered: false, dragging: false, displacement: 0, reduced: false, activity: .thinking)
+            XCTAssertLessThanOrEqual(abs(pose.gaze.width), 1.4)
+            XCTAssertEqual(pose.gaze.height, -1.4)
+        }
+        let dragged = OrbFacePose.sample(elapsed: 1, returnElapsed: nil, successful: false,
+            hovered: false, dragging: true, displacement: -30, reduced: false, activity: .thinking)
+        XCTAssertEqual(dragged.gaze, .zero)
+        XCTAssertEqual(dragged.tilt, -4)
+        let reduced = OrbFacePose.sample(elapsed: 1, returnElapsed: nil, successful: false,
+            hovered: false, dragging: false, displacement: 0, reduced: true, activity: .studying)
+        XCTAssertEqual(reduced.gaze, .zero)
+    }
+
     func testCollapseSurfaceFollowsWindowAndEndsAtLensBounds() {
         let origin = CGSize(width: 440, height: 360)
         let start = CaptureCollapseGeometry(size: origin, origin: origin)

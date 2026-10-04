@@ -252,8 +252,9 @@ private struct CapturePreviewHeight: PreferenceKey {
 }
 
 @MainActor
-final class QuickAddController {
+final class QuickAddController: ObservableObject {
     let model: QuickAddModel
+    @Published private(set) var companionIsDocked = false
     var onPresent: (() -> Void)?
     var onDismiss: (() -> Void)?
     private let hotkey = HotKeyController()
@@ -280,6 +281,10 @@ final class QuickAddController {
     private var screenObserver: NSObjectProtocol?
     private var promptGeneration = 0
     private var previousApplication: NSRunningApplication?
+    private weak var companionAnchor: NSView?
+    private var onCompanionOpen: (() -> Void)?
+    private var companionDetachedByUser = false
+    private var companionActivity: OrbActivity = .idle
 
     init(repository: any VocabularyRepository, translation: TranslationService, settings: AppSettings) {
         model = QuickAddModel(repository: repository, translation: translation)
@@ -304,17 +309,26 @@ final class QuickAddController {
         settings.$clipboardCaptureEnabled.removeDuplicates().sink { [weak self] enabled in
             self?.clipboard.setEnabled(enabled)
         }.store(in: &subscriptions)
-        settings.$floatingQuickAddEnabled.removeDuplicates().sink { [weak self] enabled in
+        settings.$floatingQuickAddEnabled.removeDuplicates().sink { [weak self] _ in
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.presentation.mode == .collapsed else { return }
-                if enabled { self.showWidget() } else { self.panel?.orderOut(nil) }
+                self.placeCollapsedOrb()
             }
         }.store(in: &subscriptions)
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .merge(with: NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification))
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    if self.presentation.mode == .collapsing { self.resize() } else { self.placeCollapsedOrb() }
+                }
+            }.store(in: &subscriptions)
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, self.panel?.isVisible == true else { return }
-                    self.screen = self.dockedScreen(); self.resize()
+                    self.screen = self.dockedScreen()
+                    if self.presentation.mode == .collapsed { self.placeCollapsedOrb() } else { self.resize() }
                 }
             }
         if settings.floatingQuickAddEnabled { showWidget() }
@@ -381,6 +395,90 @@ final class QuickAddController {
         panel.orderFrontRegardless()
     }
 
+    func attachCompanion(anchor: NSView, onOpen: @escaping () -> Void) {
+        guard !AppDependencies.isTestHost else { return }
+        if companionAnchor !== anchor { companionDetachedByUser = false }
+        companionAnchor = anchor; onCompanionOpen = onOpen
+        placeCollapsedOrb()
+    }
+
+    func detachCompanion(anchor: NSView) {
+        guard companionAnchor === anchor else { return }
+        companionAnchor = nil; onCompanionOpen = nil; companionDetachedByUser = false
+        placeCollapsedOrb()
+    }
+
+    func rejoinCompanion() {
+        companionDetachedByUser = false
+        placeCollapsedOrb()
+    }
+
+    func setCompanionActivity(_ activity: OrbActivity) {
+        companionActivity = activity
+        let visibleActivity: OrbActivity = companionIsDocked ? activity : .idle
+        if orbMotion.activity != visibleActivity { orbMotion.activity = visibleActivity }
+    }
+
+    func acknowledgeCompanionAction() {
+        guard companionIsDocked else { return }
+        orbMotion.didReturn(successful: true)
+    }
+
+    private func availableCompanionFrame() -> NSRect? {
+        guard NSApp.isActive, let anchor = companionAnchor, let window = anchor.window,
+              window.isVisible, !window.isMiniaturized, window.attachedSheet == nil, window.occlusionState.contains(.visible),
+              !anchor.isHiddenOrHasHiddenAncestor else { return nil }
+        let frame = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
+        guard frame.width >= 56, frame.height >= 56 else { return nil }
+        let destination = OrbCompanionGeometry.frame(in: frame)
+        guard NSScreen.screens.contains(where: { $0.visibleFrame.contains(destination) }) else { return nil }
+        return destination
+    }
+
+    private var companionFrame: NSRect? { companionDetachedByUser ? nil : availableCompanionFrame() }
+
+    private func updateCompanionPresence() {
+        let embedded = companionFrame != nil && presentation.mode == .collapsed
+        if companionIsDocked != embedded { companionIsDocked = embedded }
+        if presentation.embedded != embedded { presentation.embedded = embedded }
+        let activity: OrbActivity = embedded ? companionActivity : .idle
+        if orbMotion.activity != activity { orbMotion.activity = activity }
+    }
+
+    /// Travel never activates the application or captures the keyboard. Pointer events
+    /// pass through while moving so the orb cannot block a click in the user's document.
+    private func placeCollapsedOrb() {
+        guard started, !dragging, presentation.mode == .collapsed else { return }
+        updateCompanionPresence()
+        guard companionIsDocked || settings.floatingQuickAddEnabled || panel?.isVisible == true else { return }
+        let panel = ensurePanel()
+        screen = companionAnchor?.window?.screen ?? dockedScreen()
+        let target = targetFrame(for: .collapsed)
+        if !panel.isVisible {
+            guard companionIsDocked || settings.floatingQuickAddEnabled else { return }
+            panel.setPanelFrame(target); panel.orderFrontRegardless()
+            return
+        }
+        guard panel.frame != target || spring.isAnimating else {
+            panel.ignoresMouseEvents = false
+            if !companionIsDocked && !settings.floatingQuickAddEnabled { panel.orderOut(nil) }
+            return
+        }
+        panel.ignoresMouseEvents = true
+        spring.move(panel, to: target, closing: true) { [weak self, weak panel] in
+            panel?.ignoresMouseEvents = false
+            guard let self else { return }
+            if !self.companionIsDocked && !self.settings.floatingQuickAddEnabled { panel?.orderOut(nil) }
+        }
+    }
+
+    private func openOrb() {
+        if companionIsDocked {
+            companionAnchor?.window?.makeKeyAndOrderFront(nil)
+            onCompanionOpen?()
+        } else { show() }
+    }
+
     private func considerClipboard(_ word: String?) {
         clipboardCheck?.cancel(); promptGeneration += 1
         let generation = promptGeneration
@@ -442,12 +540,12 @@ final class QuickAddController {
     }
 
     private func hideCollapsedWhenDisabled() {
-        guard !settings.floatingQuickAddEnabled else { return }
+        guard !settings.floatingQuickAddEnabled, companionFrame == nil else { return }
         feedbackTask?.cancel()
         feedbackTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 550_000_000)
             guard !Task.isCancelled, let self, self.presentation.mode == .collapsed,
-                  !self.settings.floatingQuickAddEnabled else { return }
+                  !self.settings.floatingQuickAddEnabled, self.companionFrame == nil else { return }
             self.panel?.orderOut(nil)
         }
     }
@@ -474,10 +572,12 @@ final class QuickAddController {
             presentation.collapseCelebrates = presentation.mode == .saved
         }
         panel?.hasShadow = collapsing || mode != .collapsed
+        panel?.ignoresMouseEvents = false
         let nextMode: QuickCapturePresentation.Mode = collapsing ? .collapsing : mode
         withAnimation(reduced ? nil : (collapsing ? .easeOut(duration: 0.09) : .spring(duration: 0.42, bounce: 0.12))) {
             presentation.mode = nextMode
         }
+        updateCompanionPresence()
         if mode == .collapsed && !collapsing { orbMotion.didReturn(successful: returningFromSave) }
         resize()
     }
@@ -494,6 +594,8 @@ final class QuickAddController {
         orbMotion.didReturn(successful: presentation.collapseCelebrates)
         presentation.mode = .collapsed
         panel?.hasShadow = false
+        updateCompanionPresence()
+        placeCollapsedOrb()
         hideCollapsedWhenDisabled()
     }
 
@@ -508,7 +610,7 @@ final class QuickAddController {
         }
         let width = min(size.width, max(48, visible.width - 40))
         let height = min(size.height, max(48, visible.height - 52))
-        let orb = dock.frame(in: visible)
+        let orb = companionFrame ?? dock.frame(in: dockedScreen()?.visibleFrame ?? visible)
         if mode == .collapsed || mode == .collapsing { return orb }
         let x = dock.edge == .left ? orb.minX : orb.maxX - width
         let y = min(max(orb.midY - height / 2, visible.minY + 12), visible.maxY - height - 12)
@@ -532,6 +634,9 @@ final class QuickAddController {
     private func beginDrag(_ point: CGPoint) {
         guard presentation.mode == .collapsed, let panel else { return }
         spring.stop()
+        panel.ignoresMouseEvents = false
+        companionDetachedByUser = true
+        updateCompanionPresence()
         let size = OrbDockPosition.diameter
         panel.setPanelFrame(NSRect(x: panel.frame.midX - size / 2, y: panel.frame.midY - size / 2,
             width: size, height: size))
@@ -562,6 +667,11 @@ final class QuickAddController {
         updateDrag(point)
         dragging = false
         orbMotion.release()
+        if let destination = availableCompanionFrame(), OrbCompanionGeometry.acceptsDrop(panel.frame, destination: destination) {
+            companionDetachedByUser = false
+            placeCollapsedOrb()
+            return
+        }
         guard let screen = screen ?? NSScreen.main else { return }
         dock = .nearest(to: panel.frame, in: screen.visibleFrame, displayID: displayID(screen))
         if let encoded = try? JSONEncoder().encode(dock) { UserDefaults.standard.set(encoded, forKey: "quickCapture.orbDock") }
@@ -584,7 +694,7 @@ final class QuickAddController {
         panel.hasShadow = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let host = PanelHostingView(rootView: QuickCaptureShell(model: model, presentation: presentation, orbMotion: orbMotion,
-            onOpen: { [weak self] in self?.show() }, onClose: { [weak self] in self?.close() },
+            onOpen: { [weak self] in self?.openOrb() }, onClose: { [weak self] in self?.close() },
             onSaved: { [weak self] in self?.saved() }, onAccept: { [weak self] in self?.acceptPrompt() },
             onDismissPrompt: { [weak self] in self?.dismissPrompt() },
             onDragBegin: { [weak self] in self?.beginDrag($0) },
@@ -670,6 +780,7 @@ private final class QuickCapturePresentation: ObservableObject {
     @Published var word = ""
     var collapseOrigin = CGSize(width: 440, height: 300)
     var collapseCelebrates = false
+    @Published var embedded = false
 }
 
 private struct QuickCaptureShell: View {
@@ -726,7 +837,7 @@ private struct QuickCaptureShell: View {
                                 .contentShape(Rectangle()).onTapGesture(perform: onOpen)
                         }
                         GlassOrbView(motion: orbMotion, onOpen: onOpen, onDragBegin: onDragBegin,
-                            onDragChange: onDragChange, onDragEnd: onDragEnd)
+                            onDragChange: onDragChange, onDragEnd: onDragEnd, embedded: presentation.embedded)
                             .opacity(collapsing ? shell.glassOpacity : 1)
                             .allowsHitTesting(!collapsing)
                             .accessibilityHidden(collapsing)

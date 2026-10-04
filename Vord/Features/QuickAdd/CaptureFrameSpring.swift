@@ -13,6 +13,7 @@ final class CaptureFrameSpring {
     private var lastTime: CFTimeInterval = 0
     private var closing = false
     private var completion: (() -> Void)?
+    var isAnimating: Bool { timer != nil }
 
     func stop() {
         timer?.invalidate(); timer = nil

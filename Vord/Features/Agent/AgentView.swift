@@ -9,6 +9,7 @@ struct AgentView: View {
     @Environment(\.vordLayout) private var layout
     @State private var section = "Conversation"
     @State private var showingImport = false
+    @State private var composerFocusRequest = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -24,16 +25,21 @@ struct AgentView: View {
                     providerLine
                 }
             }
-            if let profile = agent.profile {
-                HStack(spacing: 20) {
+            HStack(spacing: 20) {
+                if let profile = agent.profile {
                     metric("Due words", profile.dueWords)
                     metric("Reviewed today", profile.reviewedToday)
                     metric("Words to revisit", profile.weakWords.count)
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
+                }
+                Spacer(minLength: 8)
+                CompanionOrbSlot(controller: dependencies.quickAdd) {
+                    section = "Conversation"
+                    composerFocusRequest += 1
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
             Hairline()
             if section == "Conversation" {
-                AgentConversation(agent: agent)
+                AgentConversation(agent: agent, focusRequest: composerFocusRequest)
             } else if section == "Plan" {
                 ScrollView { AgentPlanView(agent: agent, onStart: onStartPlan, onDiscuss: { section = "Conversation" }) }
             } else {
@@ -45,6 +51,7 @@ struct AgentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task { await agent.refresh() }
         .onAppear {
+            updateOrbActivity()
             if dependencies.openImportOnNextVisit {
                 dependencies.openImportOnNextVisit = false; section = "Conversation"; showingImport = true
             }
@@ -65,6 +72,25 @@ struct AgentView: View {
         .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in Task { await agent.refresh() } }
         .onReceive(history.$practice.dropFirst()) { _ in Task { await agent.refresh() } }
         .onChange(of: settings.dailyPracticeGoal) { _, _ in Task { await agent.refresh() } }
+        .onChange(of: agent.isThinking) { _, _ in updateOrbActivity() }
+        .onChange(of: agent.importingMessageID) { _, _ in updateOrbActivity() }
+        .onChange(of: section) { _, _ in updateOrbActivity() }
+        .onChange(of: agent.messages.last?.id) { _, _ in
+            if agent.messages.last?.role == .assistant { dependencies.quickAdd.acknowledgeCompanionAction() }
+        }
+        .onChange(of: importedWordCount) { old, new in
+            if new > old { dependencies.quickAdd.acknowledgeCompanionAction() }
+        }
+        .onChange(of: agent.quiz.completed) { old, new in
+            if new > old { dependencies.quickAdd.acknowledgeCompanionAction() }
+        }
+    }
+    private var importedWordCount: Int {
+        agent.messages.reduce(0) { count, message in count + (message.wordImport?.items.filter { $0.status == .added }.count ?? 0) }
+    }
+    private func updateOrbActivity() {
+        dependencies.quickAdd.setCompanionActivity(agent.isThinking || agent.importingMessageID != nil
+            ? .thinking : (section == "Practice" ? .studying : .idle))
     }
     private var importButton: some View {
         QuietButton(title: "Import words") { showingImport = true }
@@ -96,6 +122,7 @@ struct AgentView: View {
 struct AgentConversation: View {
     @ObservedObject var agent: LearningAgent
     var compact = false
+    var focusRequest = 0
     @State private var draft = ""
     @FocusState private var composing: Bool
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
@@ -163,7 +190,8 @@ struct AgentConversation: View {
                 }
             }
         }
-        .onAppear { if compact { composing = true } }
+        .onAppear { if compact || focusRequest > 0 { composing = true } }
+        .onChange(of: focusRequest) { _, _ in composing = true }
     }
     private func send() {
         guard !agent.isThinking, !draft.trimmed.isEmpty else { return }

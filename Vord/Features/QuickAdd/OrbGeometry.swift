@@ -74,13 +74,28 @@ struct CaptureCollapseGeometry {
     }
 }
 
+enum OrbCompanionGeometry {
+    static func frame(in anchor: CGRect) -> CGRect {
+        CGRect(x: anchor.midX - OrbDockPosition.diameter / 2,
+               y: anchor.midY - OrbDockPosition.diameter / 2,
+               width: OrbDockPosition.diameter, height: OrbDockPosition.diameter)
+    }
+    static func acceptsDrop(_ orb: CGRect, destination: CGRect) -> Bool {
+        destination.insetBy(dx: -18, dy: -18).contains(CGPoint(x: orb.midX, y: orb.midY))
+    }
+}
+
+enum OrbActivity: Equatable { case idle, thinking, studying }
+
 struct OrbFacePose {
     var openness: Double
     var smile: Double
     var tilt: Double
+    var gaze = CGSize.zero
 
     static func sample(elapsed: Double, returnElapsed: Double?, successful: Bool,
-                       hovered: Bool, dragging: Bool, displacement: Double, reduced: Bool) -> Self {
+                       hovered: Bool, dragging: Bool, displacement: Double, reduced: Bool,
+                       activity: OrbActivity = .idle) -> Self {
         if reduced { return Self(openness: 1, smile: 0, tilt: 0) }
         let cycle = max(0, elapsed).truncatingRemainder(dividingBy: 7.1)
         func blink(_ time: Double, start: Double, duration: Double) -> Double {
@@ -95,7 +110,14 @@ struct OrbFacePose {
         if successful, let sinceReturn = returnElapsed, sinceReturn >= 0, sinceReturn < 1.5 {
             smile = min(1, sinceReturn / 0.16) * min(1, max(0, (1.5 - sinceReturn) / 0.35))
         } else { smile = 0 }
+        let gaze: CGSize
+        switch activity {
+        case .idle: gaze = .zero
+        case .thinking: gaze = CGSize(width: sin(max(0, elapsed) * 0.85) * 1.4, height: -1.4)
+        case .studying: gaze = CGSize(width: -1.2, height: 1.2)
+        }
         return Self(openness: opening * (dragging ? 0.74 : (hovered ? 1.06 : 1)),
-                    smile: smile, tilt: dragging ? max(-4, min(4, displacement * 0.75)) : 0)
+                    smile: smile, tilt: dragging ? max(-4, min(4, displacement * 0.75)) : 0,
+                    gaze: dragging ? .zero : gaze)
     }
 }

@@ -46,3 +46,12 @@ Words, definitions, both review directions and review logs continue to sync thro
 Deterministic tests cover full counts versus bounded context, archived and missing-meaning exclusions, priority/due-date planning, capacity, unchanged schedules from chat/planning, explicit review writes, duplicate and stale-word protection, conversation/plan reopening, cancellation/retry paths, clipboard gating and interrupted spring behaviour. The opt-in macOS `AgentLiveIntegrationTests` calls the configured provider with a disposable in-memory word; ordinary tests do not consume AI tokens.
 
 The former camera-notch study panel has been removed; global capture is provided by the screen-edge orb.
+
+
+## Companion orb
+
+The larger two-eye glass orb is shared with desktop Quick Add. While Companion is visible and Vord is active, that same native panel travels into a reserved place beside the learning metrics. Clicking it selects Conversation and focuses the composer; it does not send a message. The desktop orb still opens Quick Add, and the global shortcut keeps its capture behavior.
+
+The orb follows the main window when it moves or resizes. Leaving Companion, switching applications, minimizing/closing the main window or opening an attached sheet returns it to the saved desktop edge. It does not activate Vord or take keyboard focus during travel, and pointer clicks pass through the moving panel. Disabling the desktop floating-orb preference hides it outside Companion.
+
+Dragging the orb out keeps it on the desktop for that visit instead of automatically pulling it back. Drop near its reserved place or click Bring Companion back to rejoin it. Its shape remains circular. Thinking uses a small upward gaze, Practice a small gaze toward the page, and completed replies/imports/recorded practice produce a brief smile. These expressions never send AI requests or modify learning records. Reduce Motion uses immediate placement and static expressions.

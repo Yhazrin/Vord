@@ -8,6 +8,7 @@ final class OrbMotion: ObservableObject {
     @Published private(set) var isDragging = false
     @Published private(set) var returnedAt: Double?
     @Published private(set) var returnedSuccessfully = false
+    @Published var activity: OrbActivity = .idle
     func didReturn(successful: Bool) {
         returnedSuccessfully = successful
         returnedAt = Date().timeIntervalSinceReferenceDate
@@ -73,6 +74,7 @@ struct GlassOrbView: View {
     var onDragBegin: (CGPoint) -> Void
     var onDragChange: (CGPoint) -> Void
     var onDragEnd: (CGPoint) -> Void
+    var embedded = false
     @State private var hovered = false
     @State private var visible = false
     @State private var pointerOffset = CGSize.zero
@@ -121,10 +123,10 @@ struct GlassOrbView: View {
         .onHover { hovered = $0 }
         .onAppear { visible = true; appearedAt = Date().timeIntervalSinceReferenceDate }
         .onDisappear { visible = false }
-        .help("Add a word · Drag to move")
+        .help(embedded ? "Talk with Companion · Drag to move" : "Add a word · Drag to move")
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Vord quick add")
-        .accessibilityHint("Opens quick add. Drag to position at either screen edge.")
+        .accessibilityLabel(embedded ? "Vord companion" : "Vord quick add")
+        .accessibilityHint(embedded ? "Focuses the conversation. Drag out to keep it at the screen edge." : "Opens quick add. Drag to position at either screen edge.")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onOpen() }
     }
@@ -144,18 +146,19 @@ struct GlassOrbView: View {
         let pose = OrbFacePose.sample(elapsed: phase - appearedAt,
             returnElapsed: motion.returnedAt.map { max(0, phase - $0) },
             successful: motion.returnedSuccessfully, hovered: hovered,
-            dragging: motion.isDragging, displacement: motion.refraction.width, reduced: reduceMotion)
-        return HStack(spacing: 5) {
+            dragging: motion.isDragging, displacement: motion.refraction.width, reduced: reduceMotion,
+            activity: motion.activity)
+        return HStack(spacing: 7) {
             OrbEye(openness: pose.openness, smile: pose.smile)
-                .stroke(style: StrokeStyle(lineWidth: 3.1, lineCap: .round))
+                .stroke(style: StrokeStyle(lineWidth: 4.2, lineCap: .round))
             OrbEye(openness: pose.openness, smile: pose.smile)
-                .stroke(style: StrokeStyle(lineWidth: 3.1, lineCap: .round))
+                .stroke(style: StrokeStyle(lineWidth: 4.2, lineCap: .round))
         }
-        .frame(width: 23, height: 13)
+        .frame(width: 28, height: 17)
         .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.88) : Color(white: 0.16).opacity(0.88))
         .rotationEffect(.degrees(pose.tilt))
-        .offset(x: motion.refraction.width * 0.22 + pointerOffset.width * 0.8,
-                y: 1 + motion.refraction.height * 0.22 + pointerOffset.height * 0.8)
+        .offset(x: motion.refraction.width * 0.22 + pointerOffset.width * 0.8 + pose.gaze.width,
+                y: 1 + motion.refraction.height * 0.22 + pointerOffset.height * 0.8 + pose.gaze.height)
     }
 
 }
@@ -170,11 +173,11 @@ private struct OrbEye: Shape {
     }
     func path(in rect: CGRect) -> Path {
         let centre = CGPoint(x: rect.midX, y: rect.midY)
-        let halfHeight = 4.4 * openness * (1 - smile)
+        let halfHeight = 5.8 * openness * (1 - smile)
         var path = Path()
-        path.move(to: CGPoint(x: centre.x - 3.3 * smile, y: centre.y - halfHeight + 1.4 * smile))
-        path.addQuadCurve(to: CGPoint(x: centre.x + 3.3 * smile, y: centre.y + halfHeight + 1.4 * smile),
-                          control: CGPoint(x: centre.x, y: centre.y - 4.5 * smile))
+        path.move(to: CGPoint(x: centre.x - 3.7 * smile, y: centre.y - halfHeight + 1.4 * smile))
+        path.addQuadCurve(to: CGPoint(x: centre.x + 3.7 * smile, y: centre.y + halfHeight + 1.4 * smile),
+                          control: CGPoint(x: centre.x, y: centre.y - 5.2 * smile))
         return path
     }
 }
