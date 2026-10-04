@@ -174,6 +174,32 @@ final class DictionaryFlowTests: XCTestCase {
         XCTAssertEqual(Set(entries.map(\.english)), Set(["reluctant", "fear"]))
         XCTAssertTrue(entries.allSatisfy { $0.englishDefinition != nil && !$0.chinese.isEmpty })
     }
+    @MainActor
+    func testQuickAddKeyboardCandidateSelectionOnlyWritesTheChosenEntry() async throws {
+        let repo = try repository(), model = QuickAddModel(repository: repo, translation: service(store()))
+        model.text = "害怕"
+        let initialSave = await model.submit()
+        XCTAssertFalse(initialSave)
+        XCTAssertGreaterThan(model.candidates.count, 1)
+        model.moveCandidate(1)
+        let chosen = try XCTUnwrap(model.selectedCandidate)
+        XCTAssertEqual(chosen, model.candidates[1])
+        let before = try await repo.activeEntries()
+        XCTAssertTrue(before.isEmpty)
+        model.moveCandidate(100)
+        XCTAssertEqual(model.selectedCandidate, model.candidates.last)
+        model.moveCandidate(-100)
+        XCTAssertEqual(model.selectedCandidate, model.candidates.first)
+        model.moveCandidate(1)
+        let didSave = await model.submit(candidate: model.selectedCandidate)
+        XCTAssertTrue(didSave)
+        let entries = try await repo.activeEntries()
+        XCTAssertEqual(entries.map(\.english), [chosen.english])
+        model.reset()
+        XCTAssertNil(model.selectedCandidate)
+        XCTAssertEqual(model.selectedCandidateIndex, 0)
+    }
+
     func testDictionaryExampleUsesOnlyARealQuotedSentence() {
         let reluctant = "reluctant re·luc·tant | rəˈləkt(ə)nt | adjective unwilling and hesitant; disinclined: [with infinitive] : she seemed reluctant to discuss the matter. ORIGIN early 17th century: from Latin reluctant- ‘struggling against’."
         XCTAssertEqual(DictionaryExample.extract(from: reluctant, headword: "reluctant"), "she seemed reluctant to discuss the matter.")

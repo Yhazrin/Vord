@@ -24,4 +24,25 @@ final class CaptureInputTests: XCTestCase {
         XCTAssertEqual(submits, 1)
         XCTAssertFalse(coordinator.control(field, textView: editor, doCommandBy: #selector(NSResponder.insertTab(_:))))
     }
+    @MainActor
+    func testCandidateArrowsDoNotInterceptChineseCompositionOrNormalEditing() {
+        var movements: [Int] = []
+        var choosing = true
+        let input = CaptureInput(text: .constant("害怕"), focused: .constant(true), onSubmit: {},
+            onMoveCandidate: { offset in
+                guard choosing else { return false }
+                movements.append(offset); return true
+            })
+        let coordinator = input.makeCoordinator(), field = NSTextField(), editor = NSTextView()
+        XCTAssertTrue(coordinator.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveDown(_:))))
+        XCTAssertTrue(coordinator.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveUp(_:))))
+        XCTAssertEqual(movements, [1, -1])
+        editor.setMarkedText("hai", selectedRange: NSRange(location: 3, length: 0),
+                             replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertFalse(coordinator.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveDown(_:))))
+        XCTAssertEqual(movements, [1, -1])
+        editor.unmarkText(); choosing = false
+        XCTAssertFalse(coordinator.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveUp(_:))))
+    }
+
 }

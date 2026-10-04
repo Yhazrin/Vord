@@ -14,6 +14,7 @@ struct CaptureInput: NSViewRepresentable {
     var fontSize: CGFloat = 20
     var onSubmit: () -> Void
     var onCancel: (() -> Void)? = nil
+    var onMoveCandidate: ((Int) -> Bool)? = nil
     @Environment(\.isEnabled) private var enabled
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -52,6 +53,10 @@ struct CaptureInput: NSViewRepresentable {
             }
             if selector == #selector(NSResponder.cancelOperation(_:)), let onCancel = parent.onCancel {
                 onCancel(); return true
+            }
+            if !textView.hasMarkedText(), let move = parent.onMoveCandidate {
+                if selector == #selector(NSResponder.moveDown(_:)) { return move(1) }
+                if selector == #selector(NSResponder.moveUp(_:)) { return move(-1) }
             }
             return false
         }

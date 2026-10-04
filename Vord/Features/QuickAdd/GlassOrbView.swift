@@ -69,6 +69,7 @@ struct GlassOrbView: View {
     var onDragEnd: (CGPoint) -> Void
     @State private var hovered = false
     @State private var visible = false
+    @State private var pointerOffset = CGSize.zero
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
@@ -82,18 +83,34 @@ struct GlassOrbView: View {
                 } else {
                     if #available(macOS 26, *) {
                         OrbLiquidGlass(dark: colorScheme == .dark)
+                            .mask {
+                                // Feather only the last two points of the lens; keep
+                                // its centre and background sampling at full strength.
+                                Circle().fill(RadialGradient(stops: [
+                                    .init(color: .white, location: 0),
+                                    .init(color: .white, location: 0.92),
+                                    .init(color: .white.opacity(0.35), location: 0.985),
+                                    .init(color: .clear, location: 1)
+                                ], center: .center, startRadius: 0, endRadius: 28))
+                            }
                     } else {
                         OrbGlassMaterial(dark: colorScheme == .dark)
                     }
-                    OrbOptics(phase: phase, displacement: motion.refraction, dark: colorScheme == .dark)
+                    OrbOptics(phase: phase, displacement: CGSize(width: motion.refraction.width + pointerOffset.width,
+                        height: motion.refraction.height + pointerOffset.height))
                 }
                 eyes(phase: phase)
             }
         }
         .frame(width: 56, height: 56)
         .clipShape(Circle())
-        .shadow(color: .black.opacity(motion.isDragging ? 0.2 : 0.14), radius: motion.isDragging ? 5 : 3, y: 3)
-        .overlay(OrbPointerSurface(onOpen: onOpen, onBegin: onDragBegin, onChange: onDragChange, onEnd: onDragEnd))
+        .shadow(color: .black.opacity(motion.isDragging ? 0.14 : 0.09), radius: motion.isDragging ? 6 : 4, y: 2)
+        .overlay(OrbPointerSurface(onOpen: onOpen, onBegin: onDragBegin, onChange: onDragChange, onEnd: onDragEnd, onPointer: { point in
+            guard !reduceMotion else { return }
+            withAnimation(.smooth(duration: 0.18)) {
+                pointerOffset = point.map { CGSize(width: $0.x * 2.4, height: $0.y * 2.4) } ?? .zero
+            }
+        }))
         .onHover { hovered = $0 }
         .onAppear { visible = true }
         .onDisappear { visible = false }
@@ -115,7 +132,8 @@ struct GlassOrbView: View {
         .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.82) : Color(white: 0.2).opacity(0.82))
         .scaleEffect(x: 1, y: blink)
         .shadow(color: .white.opacity(0.28), radius: 0.4, y: 0.6)
-        .offset(x: motion.refraction.width * 0.22, y: 1 + motion.refraction.height * 0.22 + (hovered ? -0.6 : 0))
+        .offset(x: motion.refraction.width * 0.22 + pointerOffset.width * 0.7,
+                y: 1 + motion.refraction.height * 0.22 + pointerOffset.height * 0.7 + (hovered ? -0.6 : 0))
         .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: hovered)
     }
 }
@@ -125,18 +143,10 @@ struct GlassOrbView: View {
 private struct OrbOptics: View {
     var phase: Double
     var displacement: CGSize
-    var dark: Bool
 
     var body: some View {
         let drift = sin(phase * 0.32)
         ZStack {
-            Circle().fill(RadialGradient(stops: [
-                .init(color: .clear, location: 0),
-                .init(color: .clear, location: 0.62),
-                .init(color: .black.opacity(dark ? 0.22 : 0.14), location: 0.87),
-                .init(color: .white.opacity(0.3), location: 0.98),
-                .init(color: .clear, location: 1)
-            ], center: .center, startRadius: 0, endRadius: 28))
             // A soft reflected light source, with a narrow, crisp specular core.
             Ellipse().fill(LinearGradient(colors: [.white.opacity(0.76), .white.opacity(0.03)],
                 startPoint: .top, endPoint: .bottom))
@@ -217,9 +227,10 @@ private struct OrbPointerSurface: NSViewRepresentable {
     var onBegin: (CGPoint) -> Void
     var onChange: (CGPoint) -> Void
     var onEnd: (CGPoint) -> Void
+    var onPointer: (CGPoint?) -> Void
     func makeNSView(context: Context) -> OrbPointerView { let view = OrbPointerView(); updateNSView(view, context: context); return view }
     func updateNSView(_ view: OrbPointerView, context: Context) {
-        view.onOpen = onOpen; view.onBegin = onBegin; view.onChange = onChange; view.onEnd = onEnd
+        view.onOpen = onOpen; view.onBegin = onBegin; view.onChange = onChange; view.onEnd = onEnd; view.onPointer = onPointer
     }
 }
 
@@ -228,6 +239,25 @@ private final class OrbPointerView: NSView {
     var onBegin: ((CGPoint) -> Void)?
     var onChange: ((CGPoint) -> Void)?
     var onEnd: ((CGPoint) -> Void)?
+    var onPointer: ((CGPoint?) -> Void)?
+    private var pointerTracking: NSTrackingArea?
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let pointerTracking { removeTrackingArea(pointerTracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved], owner: self)
+        addTrackingArea(area); pointerTracking = area
+    }
+    override func mouseEntered(with event: NSEvent) { trackPointer(event) }
+    override func mouseMoved(with event: NSEvent) { trackPointer(event) }
+    override func mouseExited(with event: NSEvent) { onPointer?(nil) }
+    private func trackPointer(_ event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let radius = max(1, bounds.width / 2)
+        let dx = (point.x - bounds.midX) / radius
+        let dy = (bounds.midY - point.y) / radius
+        guard dx * dx + dy * dy <= 1 else { onPointer?(nil); return }
+        onPointer?(CGPoint(x: dx, y: dy))
+    }
     private var start = CGPoint.zero
     private var dragged = false
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

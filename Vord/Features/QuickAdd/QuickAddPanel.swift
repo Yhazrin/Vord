@@ -8,6 +8,7 @@ final class QuickAddModel: ObservableObject {
     @Published var text = ""
     @Published var hint = ""
     @Published var candidates: [TranslationResult] = []
+    @Published private(set) var selectedCandidateIndex = 0
     @Published var isTranslating = false
     @Published var isSaving = false
     @Published private(set) var errorMessage: String?
@@ -18,7 +19,19 @@ final class QuickAddModel: ObservableObject {
     @Published private(set) var panelHeight: CGFloat = 112
     @Published private(set) var focusRequest = 0
     func requestInputFocus() { focusRequest += 1 }
-    var canSave: Bool { !text.trimmed.isEmpty && !isSaving && candidates.isEmpty }
+    var canSave: Bool { !text.trimmed.isEmpty && !isSaving }
+    var selectedCandidate: TranslationResult? {
+        candidates.indices.contains(selectedCandidateIndex) ? candidates[selectedCandidateIndex] : nil
+    }
+    func moveCandidate(_ offset: Int) {
+        guard !candidates.isEmpty, !isSaving else { return }
+        selectedCandidateIndex = min(max(0, selectedCandidateIndex + offset), candidates.count - 1)
+    }
+    func fitPreview(contentHeight: CGFloat) {
+        guard preview != nil, !isTranslating, contentHeight > 0, contentHeight.isFinite else { return }
+        let next = min(420, max(180, ceil(contentHeight) + 134 + (sourceNote == nil ? 0 : 26)))
+        if abs(next - panelHeight) > 1 { panelHeight = next }
+    }
     private let repository: any VocabularyRepository
     private let translation: TranslationService
     private var lookup: Task<Void, Never>?
@@ -30,6 +43,7 @@ final class QuickAddModel: ObservableObject {
     func reset() {
         session += 1
         lookup?.cancel(); text = ""; hint = ""; candidates = []
+        selectedCandidateIndex = 0
         isTranslating = false; isSaving = false; preview = nil; sourceNote = nil; selectionPrompt = nil; errorMessage = nil; lastSavedWord = nil
         panelHeight = 112
     }
@@ -44,14 +58,14 @@ final class QuickAddModel: ObservableObject {
     func scheduleLookup() {
         lookup?.cancel()
         let raw = text.trimmed
-        preview = nil; candidates = []; hint = ""; errorMessage = nil
+        preview = nil; candidates = []; selectedCandidateIndex = 0; hint = ""; errorMessage = nil
         guard !raw.isEmpty else {
             isTranslating = false
             if selectionPrompt == nil { panelHeight = 112 }
             return
         }
         isTranslating = true
-        panelHeight = 156
+        panelHeight = max(156, panelHeight)
         lookup = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 220_000_000)
             guard !Task.isCancelled else { return }
@@ -119,7 +133,10 @@ struct QuickAddView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                CaptureInput(text: $model.text, focused: $focused, fontSize: 22, onSubmit: submit, onCancel: onClose)
+                CaptureInput(text: $model.text, focused: $focused, fontSize: 22, onSubmit: submit, onCancel: onClose, onMoveCandidate: { offset in
+                        guard !model.candidates.isEmpty else { return false }
+                        model.moveCandidate(offset); return true
+                    })
                     .frame(height: 30)
                 ChromeIconButton(symbol: "xmark", help: "Close quick add", action: onClose)
             }
@@ -129,12 +146,23 @@ struct QuickAddView: View {
             }
             if hasLookupContent {
               Hairline()
+              ScrollViewReader { proxy in
               ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if model.isTranslating {
                         ProgressView().controlSize(.small).accessibilityLabel("Looking up")
                     } else if let preview = model.preview {
                         VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 10) {
+                            if let phonetic = preview.phonetic?.nilIfEmpty {
+                                Text(phonetic).font(AppTypography.caption).foregroundStyle(AppColors.secondaryText)
+                            }
+                            if model.text.trimmed.caseInsensitiveCompare(preview.english) != .orderedSame {
+                                Text(preview.english).font(AppTypography.headline)
+                            }
+                            Spacer()
+                            SpeechButton(text: preview.english)
+                        }
                         Text(preview.chinese).font(AppTypography.ui(size: 18)).lineSpacing(3)
                             .fixedSize(horizontal: false, vertical: true).textSelection(.enabled).id(preview.chinese)
                         if let definition = preview.englishDefinition {
@@ -148,7 +176,11 @@ struct QuickAddView: View {
                         if let provider = preview.providerName {
                             Text(provider).font(AppTypography.caption).foregroundStyle(AppColors.tertiaryText)
                         }
-                        }.modifier(MotionArrival()).id(preview.english)
+                        }
+                        .background(GeometryReader { geometry in
+                            Color.clear.preference(key: CapturePreviewHeight.self, value: geometry.size.height)
+                        })
+                        .modifier(MotionArrival()).id(preview.english)
                     } else if !model.hint.isEmpty {
                         Text(model.hint).font(AppTypography.body).foregroundStyle(AppColors.secondaryText)
                     } else if model.text.trimmed.isEmpty, let prompt = model.selectionPrompt, !prompt.isEmpty {
@@ -165,8 +197,12 @@ struct QuickAddView: View {
                                         Text(candidate.english).font(AppTypography.headline).frame(width: 115, alignment: .leading)
                                         Text(candidate.chinese).font(AppTypography.caption)
                                             .frame(maxWidth: .infinity, alignment: .leading).lineLimit(2)
-                                    }.padding(.vertical, 10).contentShape(Rectangle())
+                                    }.padding(.vertical, 10).padding(.horizontal, 8).contentShape(Rectangle())
+                                        .background(model.selectedCandidate?.english == candidate.english ? AppColors.accentWash : Color.clear,
+                                                    in: RoundedRectangle(cornerRadius: 7))
                                 }.buttonStyle(MotionPressStyle()).disabled(model.isSaving)
+                                    .accessibilityAddTraits(model.selectedCandidate?.english == candidate.english ? .isSelected : [])
+                                    .id(candidate.english)
                                 Hairline()
                             }
                         }
@@ -174,6 +210,11 @@ struct QuickAddView: View {
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 6)
               }.frame(maxHeight: .infinity)
+                .onPreferenceChange(CapturePreviewHeight.self) { model.fitPreview(contentHeight: $0) }
+                .onChange(of: model.selectedCandidateIndex) { _, _ in
+                    if let selected = model.selectedCandidate { proxy.scrollTo(selected.english, anchor: .center) }
+                }
+              }
             }
             HStack {
                 if model.isSaving {
@@ -182,7 +223,7 @@ struct QuickAddView: View {
                     Text(error).font(AppTypography.caption).foregroundStyle(AppColors.secondaryText).lineLimit(2)
                 }
                 Spacer()
-                PrimaryButton(title: "Add", action: submit).disabled(!model.canSave)
+                PrimaryButton(title: model.candidates.isEmpty ? "Add" : "Add selected", action: submit).disabled(!model.canSave)
                     .help("Return to add")
             }
         }
@@ -198,9 +239,17 @@ struct QuickAddView: View {
     private var hasLookupContent: Bool {
         model.isTranslating || model.preview != nil || !model.hint.isEmpty || model.selectionPrompt != nil || !model.candidates.isEmpty
     }
-    private func submit() { Task { if await model.submit() { (onSaved ?? onClose)() } } }
+    private func submit() {
+        let chosen = model.selectedCandidate
+        Task { if await model.submit(candidate: chosen) { (onSaved ?? onClose)() } }
+    }
 }
 
+
+private struct CapturePreviewHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
 
 @MainActor
 final class QuickAddController {
