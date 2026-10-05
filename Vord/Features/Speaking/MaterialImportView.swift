@@ -93,13 +93,15 @@ struct MaterialImportView: View {
     }
     private func analyze() {
         guard !busy, source.count <= SpeakingImport.maxSourceCharacters else { error = "Use up to 60,000 characters."; return }
+        guard let descriptor = ai.selected else { error = "Choose an AI service in Settings."; return }
+        let provider = HTTPAIProvider(descriptor: descriptor)
         let text = source, title = name
         busy = true; error = nil
         request = Task {
             defer { busy = false; request = nil }
             do {
                 let value = try await SpeakingImport.analyze(text: text, name: title) { prompt, system in
-                    try await ai.generate(prompt: prompt, system: system)
+                    try await provider.generate(request: .init(modelID: descriptor.modelID, prompt: prompt, system: system))
                 }
                 try Task.checkCancellation(); prepare(value)
             } catch is CancellationError {} catch { self.error = error.localizedDescription }

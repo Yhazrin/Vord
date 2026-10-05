@@ -40,8 +40,11 @@ struct SpeakingMaterialsView: View {
     @State private var sheet: MaterialSheet?
     @State private var error: String?
     private var filtered: [SpeakingMaterial] {
-        library.materials.filter { item in
-            (scope == "All materials" || (scope == "My materials" ? library.personal.contains { $0.id == item.id } : item.source.hasPrefix("Starter pack")))
+        let revisit = scope == "To revisit" ? library.revisitIDs : []
+        let personalIDs = Set(library.personal.map(\.id))
+        return library.materials.filter { item in
+            (scope == "All materials" || (scope == "To revisit" ? revisit.contains(item.id)
+                : (scope == "My materials" ? personalIDs.contains(item.id) : item.source.hasPrefix("Starter pack"))))
             && (part == .any || item.part == part || item.part == .any)
             && (search.trimmed.isEmpty || [item.title, item.english, item.chinese, item.topic, item.prompt].contains { $0.localizedCaseInsensitiveContains(search.trimmed) })
         }
@@ -77,13 +80,15 @@ struct SpeakingMaterialsView: View {
         .onChange(of: search) { _, _ in reconcileSelection() }
         .onChange(of: scope) { _, _ in reconcileSelection() }
         .onChange(of: part) { _, _ in reconcileSelection() }
+        .onChange(of: library.attempts.count) { _, _ in reconcileSelection() }
+        .onChange(of: library.personal) { _, _ in reconcileSelection() }
     }
     private var searchField: some View {
         TextField("Search materials", text: $search).textFieldStyle(.roundedBorder).frame(minWidth: 130)
     }
     private var filters: some View {
         HStack {
-            MenuSelect(name: "Collection", selection: $scope, choices: ["All materials", "My materials", "Starter pack"], label: { $0 })
+            MenuSelect(name: "Collection", selection: $scope, choices: ["All materials", "My materials", "To revisit", "Starter pack"], label: { $0 })
             MenuSelect(name: "Speaking part", selection: $part, choices: SpeakingMaterial.Part.allCases, label: { $0.rawValue })
         }
     }
@@ -136,6 +141,11 @@ struct SpeakingMaterialsView: View {
                         Text(item.source).font(AppTypography.tertiary).foregroundStyle(AppColors.tertiaryText)
                         Spacer()
                         SubtleButton(title: "Discuss") { discuss(item) }
+                    }
+                    if let document = library.documents.first(where: { $0.id == item.sourceDocumentID }) {
+                        DisclosureGroup("Original notes") {
+                            Text(document.text).font(AppTypography.caption).textSelection(.enabled).padding(.top, 8)
+                        }
                     }
                     if let excerpt = item.sourceExcerpt {
                         DisclosureGroup("Source excerpt") { Text(excerpt).textSelection(.enabled).padding(.top, 8) }
