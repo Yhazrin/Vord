@@ -10,6 +10,7 @@ final class AppDependencies: ObservableObject {
     let aiRegistry: AIProviderRegistry
     let ai: AIConfigurationStore
     let history: LearningHistory
+    let speaking = SpeakingLibrary()
     let dictionary: DictionaryStore
     let dictation = DictationModel()
     private var currentReview: ReviewViewModel?
@@ -24,6 +25,7 @@ final class AppDependencies: ObservableObject {
     var openImportOnNextVisit = false
     lazy var agent = LearningAgent(repository: repository, scheduler: scheduler, dictionary: dictionary,
         providerName: { [weak self] in self?.ai.selected?.name ?? "AI" },
+        speakingContext: { [weak self] question in self?.speaking.context(question: question) ?? "{}" },
         practice: { [weak self] in self?.history.practice ?? [] },
         dailyPracticeGoal: { [weak self] in self?.settings.dailyPracticeGoal ?? 10 },
         generate: { [weak self] prompt, system in
@@ -32,6 +34,11 @@ final class AppDependencies: ObservableObject {
         })
     func startPlanReview(entryIDs: [UUID]) {
         currentReview = ReviewViewModel(repository: repository, scheduler: scheduler, mode: .mixed, plannedEntryIDs: entryIDs)
+    }
+
+    func startShortReview(entryIDs: [UUID]) {
+        currentReview = ReviewViewModel(repository: repository, scheduler: scheduler, mode: .mixed,
+            plannedEntryIDs: Array(entryIDs.prefix(5)), shortRound: true)
     }
 
     func openVocabularyImport() {

@@ -16,6 +16,9 @@ final class ReviewViewModel: ObservableObject {
     @Published var forgotten = 0
     @Published var repeated = false
     @Published private(set) var lastRating: ReviewRating?
+    @Published private(set) var answers: [String: ReviewSessionAnswer] = [:]
+    let shortRound: Bool
+    var roundSummary: ReviewRoundSummary { ReviewRoundSummary(answers: Array(answers.values)) }
 
     private var queue: [ReviewCard] = []
     private var repeats: [String: Int] = [:]
@@ -25,9 +28,10 @@ final class ReviewViewModel: ObservableObject {
     private let mode: ReviewMode
     private let plannedEntryIDs: [UUID]?
 
-    init(repository: any VocabularyRepository, scheduler: any ReviewScheduling, mode: ReviewMode, plannedEntryIDs: [UUID]? = nil) {
+    init(repository: any VocabularyRepository, scheduler: any ReviewScheduling, mode: ReviewMode, plannedEntryIDs: [UUID]? = nil, shortRound: Bool = false) {
         self.repository = repository; self.scheduler = scheduler; self.mode = mode
         self.plannedEntryIDs = plannedEntryIDs
+        self.shortRound = shortRound
     }
     func load() async {
         guard !didLoad else { return }
@@ -47,7 +51,7 @@ final class ReviewViewModel: ObservableObject {
                     return ReviewCard(entry: entry, direction: next.direction, state: next)
                 }
             } else { cards = try await repository.dueCards(now: Date(), limit: 240) }
-            queue = Array(Self.makeQueue(cards: cards, mode: mode).prefix(80))
+            queue = Array(Self.makeQueue(cards: cards, mode: mode).prefix(shortRound ? 5 : 80))
             total = queue.count; didLoad = true; advance()
         } catch { self.error = error.localizedDescription }
     }
@@ -69,6 +73,7 @@ final class ReviewViewModel: ObservableObject {
             }
             let result = scheduler.schedule(state: state, direction: card.direction, rating: rating, now: Date())
             try await repository.recordReview(result)
+            answers[card.id] = ReviewSessionAnswer(entry: entry, rating: rating)
             lastRating = rating
             queue.removeFirst()
             attempts += 1
@@ -166,8 +171,9 @@ private struct ReviewSession: View {
                 } else if model.isEmpty {
                     LearningCard {
                         if model.total > 0 {
-                            StudyCompletion(title: "Session complete",
-                                detail: "\(model.completed) cards completed in \(model.attempts) answers. \(model.forgotten) answers needed another look.")
+                            StudyCompletion(title: model.shortRound ? "Round complete" : "Session complete",
+                                detail: "\(model.roundSummary.practicedCount) words practiced · \(model.attempts) answers")
+                            roundResults
                             StudyProgress(completed: model.completed, total: model.total)
                         } else {
                             EmptyLearningState(symbol: "checkmark.seal", title: "No cards due",
@@ -238,6 +244,24 @@ private struct ReviewSession: View {
                     if model.card == nil { QuietButton(title: "Try again") { Task { await model.load() } } }
                 }
             }
+    }
+
+    private var roundResults: some View {
+        let result = model.roundSummary
+        return VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            HStack(spacing: AppSpacing.lg) {
+                Text("Recalled · \(result.recalled.count)")
+                Text("To revisit · \(result.revisit.count)").foregroundStyle(AppColors.secondaryText)
+            }.font(AppTypography.headline)
+                .accessibilityElement(children: .combine)
+            if !result.revisit.isEmpty {
+                Text(result.revisit.map(\.headword).joined(separator: " · "))
+                    .font(AppTypography.body).foregroundStyle(AppColors.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }.frame(maxWidth: .infinity, alignment: .center)
+            .padding(.bottom, AppSpacing.md)
+            .help("Based on your last saved rating for each direction in this session.")
     }
 
     private var sessionProgress: some View {

@@ -8,6 +8,7 @@ final class TodayViewModel: ObservableObject {
     @Published var activity: StudyActivity?
     @Published var nextDue: Date?
     @Published var error: String?
+    @Published private(set) var round = StudyRound(entryIDs: [])
     var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())
         switch hour {
@@ -16,7 +17,7 @@ final class TodayViewModel: ObservableObject {
         default: return "Good evening."
         }
     }
-    func load(_ repository: any VocabularyRepository, practice: [ExamPracticeRecord] = []) async {
+    func load(_ repository: any VocabularyRepository, practice: [ExamPracticeRecord] = [], dailyGoal: Int = 10) async {
         do {
             let now = Date()
             summary = try await repository.todaySummary(now: now)
@@ -27,6 +28,7 @@ final class TodayViewModel: ObservableObject {
             nextDue = snapshot.reviewStates.filter { activeIDs.contains($0.entryID) }
                 .flatMap(\.directions).map(\.dueAt).filter { $0 > now }.min()
             activity = StudyActivity(snapshot: snapshot, practice: practice, now: now)
+            round = StudyRound.make(snapshot: snapshot, practice: practice, dailyGoal: dailyGoal, now: now)
             error = nil
         } catch { self.error = error.localizedDescription }
     }
@@ -37,9 +39,11 @@ struct TodayView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var history: LearningHistory
     var onStartReview: () -> Void
+    var onStartRound: ([UUID]) -> Void
     var onNavigate: (AppTab) -> Void
     @StateObject private var model = TodayViewModel()
     @State private var selectedEntry: VocabularyEntry?
+    @State private var preparingRound = false
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @Environment(\.vordLayout) private var layout
 
@@ -61,9 +65,10 @@ struct TodayView: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .modifier(PageInset(top: 20, bottom: AppSpacing.lg))
         }
-        .task { await model.load(dependencies.repository, practice: history.practice) }
+        .task { await model.load(dependencies.repository, practice: history.practice, dailyGoal: settings.dailyPracticeGoal) }
         .onReceive(NotificationCenter.default.publisher(for: .vordLibraryDidChange)) { _ in reload() }
         .onReceive(history.$practice.dropFirst()) { _ in reload() }
+        .onChange(of: settings.dailyPracticeGoal) { _, _ in reload() }
         .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in reload() }
         .sheet(item: $selectedEntry) { entry in
             WordDetailView(entryID: entry.id) { selectedEntry = nil }
@@ -72,13 +77,33 @@ struct TodayView: View {
     }
 
     private func reload() {
-        Task { await model.load(dependencies.repository, practice: history.practice) }
+        Task { await model.load(dependencies.repository, practice: history.practice, dailyGoal: settings.dailyPracticeGoal) }
+    }
+
+    private func startRound() {
+        guard !preparingRound else { return }
+        preparingRound = true
+        Task {
+            defer { preparingRound = false }
+            // Re-select from current data, including changes synced since the
+            // page opened. Review loading validates these IDs again.
+            await model.load(dependencies.repository, practice: history.practice, dailyGoal: settings.dailyPracticeGoal)
+            guard model.error == nil else { return }
+            if model.round.entryIDs.isEmpty { onNavigate(.dictation) }
+            else { onStartRound(model.round.entryIDs) }
+        }
+    }
+
+    private var roundButton: some View {
+        let count = model.round.entryIDs.count
+        return QuietButton(title: count > 0 ? "Review \(count) \(count == 1 ? "word" : "words")" : "Practice dictation", action: startRound)
+            .disabled(preparingRound)
+            .help("A short round of up to five due words. Today's unseen words come first.")
     }
 
     private var dailyPractice: some View {
         let completed = model.activity?.day(model.activity?.now ?? Date()).practicedWords.count ?? 0
         let goal = settings.dailyPracticeGoal
-        let reached = completed >= goal
         return VStack(alignment: .leading, spacing: AppSpacing.sm) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: AppSpacing.md) {
@@ -87,15 +112,11 @@ struct TodayView: View {
                     if let streak = model.activity?.practiceStreak, streak > 1 {
                         Text("\(streak)-day streak").font(AppTypography.caption).foregroundStyle(AppColors.secondaryText)
                     }
-                    QuietButton(title: reached ? "Keep practicing" : "Practice") {
-                        if model.summary.dueCount > 0 { onStartReview() } else { onNavigate(.dictation) }
-                    }
+                    roundButton
                 }
                 VStack(alignment: .leading, spacing: AppSpacing.sm) {
                     practiceStatus(completed: completed, goal: goal)
-                    QuietButton(title: reached ? "Keep practicing" : "Practice") {
-                        if model.summary.dueCount > 0 { onStartReview() } else { onNavigate(.dictation) }
-                    }
+                    roundButton
                 }
             }
             StudyProgress(completed: completed, total: goal)

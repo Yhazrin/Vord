@@ -42,6 +42,8 @@ final class LearningFlowTests: XCTestCase {
         XCTAssertEqual(model.completed, 1)
         XCTAssertEqual(model.attempts, 2)
         XCTAssertEqual(model.lastRating, .good)
+        XCTAssertEqual(model.roundSummary.recalled.count, 1)
+        XCTAssertTrue(model.roundSummary.revisit.isEmpty)
     }
     @MainActor
     func testFailedSaveDoesNotDropTheCard() async throws {
@@ -56,6 +58,7 @@ final class LearningFlowTests: XCTestCase {
         XCTAssertTrue(model.showAnswer)
         XCTAssertEqual(model.attempts, 0)
         XCTAssertNil(model.lastRating)
+        XCTAssertEqual(model.roundSummary.practicedCount, 0)
     }
     @MainActor
     func testExamDoesNotChangeReviewAndRetriesOnlyMistakes() async throws {

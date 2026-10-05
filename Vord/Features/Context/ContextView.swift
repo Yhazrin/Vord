@@ -17,6 +17,7 @@ struct ContextView: View {
     @State private var generationTask: Task<Void, Never>?
     @State private var error: String?
     @State private var saved = Set<UUID>()
+    @State private var collected = Set<UUID>()
     @State private var revealTranslation = true
     @State private var hideWords = false
     @State private var revealed = Set<UUID>()
@@ -137,7 +138,7 @@ struct ContextView: View {
                 Text("Saved sets").font(AppTypography.headline)
                 ForEach(history.contexts.prefix(10)) { item in
                     Button {
-                        record = item; saved = []; revealed = []; error = nil
+                        record = item; saved = []; collected = []; revealed = []; error = nil
                         selection = Set(item.examples.map(\.entryID)).intersection(Set(entries.map(\.id)))
                         topic = item.topic; level = item.level
                     } label: {
@@ -209,6 +210,14 @@ struct ContextView: View {
                 SubtleButton(title: saved.contains(example.id) ? "Saved" : "Save to word") {
                     Task { await save(example) }
                 }.disabled(saved.contains(example.id) || generating)
+                SubtleButton(title: collected.contains(example.id) ? "Collected" : "Collect material") {
+                    do {
+                        let item = SpeakingMaterial(title: example.word, english: example.sentence,
+                            chinese: example.translation, prompt: "Use \(example.word) in a short answer about \(record?.topic ?? "everyday life").",
+                            notes: example.explanation, topic: record?.topic ?? "General", source: "Generated example")
+                        try dependencies.speaking.add([item]); collected.insert(example.id)
+                    } catch { self.error = error.localizedDescription }
+                }.disabled(collected.contains(example.id) || generating)
             }
         }.padding(.vertical, 8)
     }
@@ -222,7 +231,7 @@ struct ContextView: View {
         guard !generating, let descriptor = ai.selected else { return }
         let words = selected, scene = String(topic.trimmed.prefix(200)), difficulty = level
         let previous = record?.examples ?? []
-        generating = true; error = nil; saved = []; startedAt = Date()
+        generating = true; error = nil; saved = []; collected = []; startedAt = Date()
         generationTask = Task {
             defer { generating = false }
             do {

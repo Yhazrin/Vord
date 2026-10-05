@@ -85,11 +85,13 @@ struct RootView: View {
 
     @ViewBuilder private var page: some View {
         switch tab {
-        case .today: TodayView(onStartReview: { tab = .review }, onNavigate: { tab = $0 })
+        case .today: TodayView(onStartReview: { tab = .review }, onStartRound: { ids in
+            dependencies.startShortReview(entryIDs: ids); tab = .review
+        }, onNavigate: { tab = $0 })
         case .add: AddView()
         case .review: ReviewView { tab = .today }
         case .dictation: DictationView(model: dependencies.dictation)
-        case .context: ContextView { tab = .settings }
+        case .context: ContextWorkspaceView(library: dependencies.speaking) { tab = .settings }
         case .agent: AgentView(agent: dependencies.agent) { ids in
             dependencies.startPlanReview(entryIDs: ids); tab = .review
         }
