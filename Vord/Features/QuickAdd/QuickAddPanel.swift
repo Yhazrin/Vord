@@ -16,6 +16,7 @@ final class QuickAddModel: ObservableObject {
     @Published private(set) var sourceNote: String?
     @Published private(set) var selectionPrompt: String?
     @Published private(set) var lastSavedWord: String?
+    @Published private(set) var lastSaveWasDuplicate = false
     @Published private(set) var panelHeight: CGFloat = 112
     @Published private(set) var focusRequest = 0
     func requestInputFocus() { focusRequest += 1 }
@@ -36,6 +37,7 @@ final class QuickAddModel: ObservableObject {
     private let translation: TranslationService
     private var lookup: Task<Void, Never>?
     private var session = 0
+    private var clipboardPreview = false
 
     init(repository: any VocabularyRepository, translation: TranslationService) {
         self.repository = repository; self.translation = translation
@@ -45,6 +47,7 @@ final class QuickAddModel: ObservableObject {
         lookup?.cancel(); text = ""; hint = ""; candidates = []
         selectedCandidateIndex = 0
         isTranslating = false; isSaving = false; preview = nil; sourceNote = nil; selectionPrompt = nil; errorMessage = nil; lastSavedWord = nil
+        clipboardPreview = false; lastSaveWasDuplicate = false
         panelHeight = 112
     }
     func presentWordChoices(_ words: [String]) {
@@ -55,7 +58,17 @@ final class QuickAddModel: ObservableObject {
     func prepare(selection: ExternalCaptureRequest) {
         reset(); text = selection.text; sourceNote = selection.source; scheduleLookup()
     }
+    /// The passive clipboard prompt owns a ready dictionary result, not another input step.
+    func prepareClipboard(word: String, result: TranslationResult) -> Bool {
+        guard ClipboardWord.parse(word) != nil, result.sourceLanguage == .english,
+              CaptureService.matches(result, raw: word), !result.chinese.trimmed.isEmpty else { return false }
+        reset(); text = word; preview = result; hint = result.chinese; clipboardPreview = true
+        return true
+    }
     func scheduleLookup() {
+        // A ready result remains usable if the view attaches after prefilling it.
+        if let preview, CaptureService.matches(preview, raw: text) { return }
+        clipboardPreview = false
         lookup?.cancel()
         let raw = text.trimmed
         preview = nil; candidates = []; selectedCandidateIndex = 0; hint = ""; errorMessage = nil
@@ -96,9 +109,15 @@ final class QuickAddModel: ObservableObject {
             guard !Task.isCancelled, session == currentSession, text.trimmed == raw else { return false }
             var draft = CaptureService.draft(from: enriched)
             if let sourceNote { draft.source = sourceNote }
-            let saved = try await repository.upsert(draft, now: Date())
+            let saved: VocabularyEntry?
+            if clipboardPreview {
+                saved = try await repository.insertIfAbsent(draft, now: Date())
+            } else {
+                saved = try await repository.upsert(draft, now: Date())
+            }
             guard session == currentSession else { return false }
-            lastSavedWord = saved.english
+            lastSavedWord = saved?.english ?? enriched.english
+            lastSaveWasDuplicate = saved == nil
             return true
         } catch {
             guard session == currentSession, !Task.isCancelled else { return false }
@@ -260,6 +279,7 @@ final class QuickAddController: ObservableObject {
     private let hotkey = HotKeyController()
     private let settings: AppSettings
     private let repository: any VocabularyRepository
+    private let translation: TranslationService
     private let clipboard = ClipboardWordMonitor()
     private let candidateDictionary = LocalDictionaryProvider()
     private let presentation = QuickCapturePresentation()
@@ -291,6 +311,7 @@ final class QuickAddController: ObservableObject {
         model = QuickAddModel(repository: repository, translation: translation)
         self.settings = settings
         self.repository = repository
+        self.translation = translation
         if let data = UserDefaults.standard.data(forKey: "quickCapture.orbDock"),
            let saved = try? JSONDecoder().decode(OrbDockPosition.self, from: data) { dock = saved }
         model.$panelHeight.removeDuplicates().sink { [weak self] _ in
@@ -482,6 +503,8 @@ final class QuickAddController: ObservableObject {
     }
 
     private func considerClipboard(_ word: String?) {
+        // A second copy must not replace the word while its explicit save is in flight.
+        guard !model.isSaving else { return }
         clipboardCheck?.cancel(); promptGeneration += 1
         let generation = promptGeneration
         if presentation.mode == .prompt { dismissPrompt() }
@@ -492,11 +515,12 @@ final class QuickAddController: ObservableObject {
         let provider = candidateDictionary
         clipboardCheck = Task { [weak self] in
             // Dictionary-only validation. This path never invokes translation downloads or AI.
-            let known = await Task.detached {
-                (try? await provider.translate(text: word, from: .english, to: .chinese)) != nil
+            let result = await Task.detached {
+                try? await provider.translate(text: word, from: .english, to: .chinese)
             }.value
-            guard known,
+            guard let result,
                   let self, !Task.isCancelled else { return }
+            let enriched = await self.translation.enrich(result)
             let entries = try? await self.repository.activeEntries()
             guard !Task.isCancelled, self.promptGeneration == generation, self.settings.clipboardCaptureEnabled,
                   self.presentation.mode != .adding, self.presentation.mode != .saved else { return }
@@ -504,6 +528,7 @@ final class QuickAddController: ObservableObject {
                 if self.presentation.mode == .prompt { self.dismissPrompt() }
                 return
             }
+            guard self.model.prepareClipboard(word: word, result: enriched) else { return }
             self.presentation.word = word
             let panel = self.ensurePanel()
             if !panel.isVisible { self.screen = self.presentationScreen() }
@@ -515,17 +540,25 @@ final class QuickAddController: ObservableObject {
     }
 
     private func dismissPrompt() {
+        guard !model.isSaving else { return }
+        model.reset()
         setMode(.collapsed)
         hideCollapsedWhenDisabled()
     }
 
     private func acceptPrompt() {
-        guard let selection = try? ExternalCaptureRequest(text: presentation.word) else { return }
-        show(selection: selection)
+        guard presentation.mode == .prompt, model.preview != nil, !model.isSaving else { return }
+        let generation = promptGeneration, word = presentation.word
+        Task { [weak self] in
+            guard let self, self.promptGeneration == generation, self.presentation.mode == .prompt,
+                  self.presentation.word == word else { return }
+            if await self.model.submit() { self.saved() }
+        }
     }
 
     private func saved() {
         presentation.word = model.lastSavedWord ?? model.preview?.english ?? model.text.trimmed
+        presentation.alreadySaved = model.lastSaveWasDuplicate
         panel?.makeFirstResponder(nil)
         panel?.resignKey()
         model.reset()
@@ -606,7 +639,7 @@ final class QuickAddController: ObservableObject {
         let size: CGSize
         switch mode {
         case .collapsed, .collapsing: size = CGSize(width: OrbDockPosition.diameter, height: OrbDockPosition.diameter)
-        case .prompt: size = CGSize(width: 308, height: 100)
+        case .prompt: size = CGSize(width: 360, height: 228)
         case .saved: size = CGSize(width: 220, height: 64)
         case .adding: size = CGSize(width: 440, height: model.panelHeight)
         }
@@ -785,6 +818,7 @@ private final class QuickCapturePresentation: ObservableObject {
     enum Mode { case collapsed, collapsing, prompt, adding, saved }
     @Published var mode: Mode = .collapsed
     @Published var word = ""
+    @Published var alreadySaved = false
     var collapseOrigin = CGSize(width: 440, height: 300)
     var collapseCelebrates = false
     @Published var embedded = false
@@ -812,25 +846,36 @@ private struct QuickCaptureShell: View {
                     .transition(.opacity.combined(with: .offset(y: reduced ? 0 : 8)))
             } else if presentation.mode == .prompt {
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 6) {
-                        Text("Add").foregroundStyle(AppColors.secondaryText)
-                        Text(presentation.word).fontWeight(.semibold).lineLimit(1)
-                        Text("?").foregroundStyle(AppColors.secondaryText)
-                        Spacer(minLength: 4)
-                    }.font(AppTypography.body)
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(presentation.word).font(AppTypography.ui(size: 22, weight: .semibold)).lineLimit(1)
+                        if let phonetic = model.preview?.phonetic { Text(phonetic).font(AppTypography.caption).foregroundStyle(AppColors.secondaryText).lineLimit(1) }
+                        Spacer(minLength: 0)
+                    }
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if let preview = model.preview {
+                                Text(preview.chinese).font(AppTypography.body).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+                                if let definition = preview.englishDefinition, !definition.trimmed.isEmpty {
+                                    Text(definition).font(AppTypography.caption).foregroundStyle(AppColors.secondaryText)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 5)
+                    }.frame(maxHeight: .infinity)
                     HStack {
-                        Text("Copied word").font(AppTypography.tertiary).foregroundStyle(AppColors.tertiaryText)
+                        if model.isSaving { ProgressView().controlSize(.small) }
+                        else if let error = model.errorMessage { Text(error).font(AppTypography.tertiary).foregroundStyle(AppColors.destructive).lineLimit(2) }
                         Spacer()
-                        Button("Not now", action: onDismissPrompt).buttonStyle(.plain).font(AppTypography.caption)
-                        PrimaryButton(title: "Add", action: onAccept)
+                        Button("Not now", action: onDismissPrompt).buttonStyle(.plain).font(AppTypography.caption).disabled(model.isSaving)
+                        PrimaryButton(title: model.isSaving ? "Adding…" : "Add", action: onAccept).disabled(model.isSaving)
                     }
                 }.padding(18).transition(.opacity)
             } else if presentation.mode == .saved {
                 HStack(spacing: 10) {
                     Image(systemName: "checkmark").font(.system(size: 15, weight: .semibold))
-                    Text("\(presentation.word) added").font(AppTypography.caption).lineLimit(1)
+                    Text("\(presentation.word) \(presentation.alreadySaved ? "already saved" : "added")").font(AppTypography.caption).lineLimit(1)
                 }.padding(16).transition(.opacity)
-                .accessibilityLabel("\(presentation.word) added to your library")
+                .accessibilityLabel(presentation.alreadySaved ? "\(presentation.word) is already in your library" : "\(presentation.word) added to your library")
             } else {
                 GeometryReader { geometry in
                     let collapsing = presentation.mode == .collapsing

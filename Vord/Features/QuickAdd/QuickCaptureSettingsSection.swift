@@ -9,7 +9,7 @@ struct QuickCaptureSettingsSection: View {
                     set: settings.setFloatingQuickAddEnabled)).toggleStyle(.switch).labelsHidden()
             }
             RowDivider()
-            ControlRow(title: "Suggest copied words", detail: "Newly copied English words show an add prompt. Checked offline; saved only when you choose Add.") {
+            ControlRow(title: "Suggest copied words", detail: "Show offline meanings for newly copied English words. Click Add to save.") {
                 Toggle("Suggest copied words", isOn: Binding(get: { settings.clipboardCaptureEnabled },
                     set: settings.setClipboardCaptureEnabled)).toggleStyle(.switch).labelsHidden()
             }

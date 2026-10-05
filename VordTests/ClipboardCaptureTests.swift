@@ -49,6 +49,78 @@ final class ClipboardCaptureTests: XCTestCase {
 }
 
 extension ClipboardCaptureTests {
+    private func cachedPlight() -> TranslationResult {
+        TranslationResult(sourceText: "plight", translatedText: "困境；境况", sourceLanguage: .english,
+            targetLanguage: .chinese, phonetic: "plaɪt", partOfSpeech: "n.",
+            englishDefinition: "A difficult situation.", chineseDefinition: "困境；境况",
+            exampleSentence: "We understood their plight.")
+    }
+    @MainActor func testClipboardPreviewIsReadyBeforeOneClickSaveAndDoesNotLookUpAgain() async throws {
+        let repo = SQLiteVocabularyRepository(database: try AppDatabase(path: ":memory:"), onChange: {})
+        // No provider is registered: any second lookup would fail this save.
+        let model = QuickAddModel(repository: repo, translation: TranslationService(selectedID: "unavailable"))
+        let result = cachedPlight()
+        XCTAssertTrue(model.prepareClipboard(word: "plight", result: result))
+        XCTAssertEqual(model.preview, result)
+        XCTAssertFalse(model.isTranslating)
+        let before = try await repo.activeEntries()
+        XCTAssertTrue(before.isEmpty)
+        model.scheduleLookup() // Attaching/prefilling a view must keep the ready result.
+        XCTAssertEqual(model.preview, result)
+        let saved = await model.submit()
+        XCTAssertTrue(saved)
+        let entries = try await repo.activeEntries()
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.chinese, "困境；境况")
+        XCTAssertEqual(entries.first?.englishDefinition, "A difficult situation.")
+        XCTAssertEqual(entries.first?.exampleSentence, "We understood their plight.")
+        XCTAssertFalse(model.lastSaveWasDuplicate)
+    }
+    @MainActor func testClipboardRaceDoesNotOverwriteAnExistingWord() async throws {
+        let repo = SQLiteVocabularyRepository(database: try AppDatabase(path: ":memory:"), onChange: {})
+        let model = QuickAddModel(repository: repo, translation: TranslationService(selectedID: "unavailable"))
+        XCTAssertTrue(model.prepareClipboard(word: "plight", result: cachedPlight()))
+        _ = try await repo.upsert(.init(english: "plight", chinese: "我的自定义释义", exampleSentence: "My own example.", tags: ["Mine"]), now: Date())
+        let before = try await repo.exportSnapshot()
+        let saved = await model.submit()
+        XCTAssertTrue(saved)
+        let after = try await repo.exportSnapshot()
+        XCTAssertEqual(after.entries, before.entries)
+        XCTAssertEqual(before.reviewStates, after.reviewStates)
+        XCTAssertTrue(model.lastSaveWasDuplicate)
+    }
+    @MainActor func testClipboardCannotUseAnotherWordsResultOrSaveAfterDismissal() async throws {
+        let repo = SQLiteVocabularyRepository(database: try AppDatabase(path: ":memory:"), onChange: {})
+        let model = QuickAddModel(repository: repo, translation: TranslationService(selectedID: "unavailable"))
+        XCTAssertFalse(model.prepareClipboard(word: "unwind", result: cachedPlight()))
+        XCTAssertNil(model.preview)
+        XCTAssertTrue(model.prepareClipboard(word: "plight", result: cachedPlight()))
+        model.reset()
+        let saved = await model.submit()
+        XCTAssertFalse(saved)
+        let entries = try await repo.activeEntries()
+        XCTAssertTrue(entries.isEmpty)
+    }
+    @MainActor func testFailedOneClickSaveRetainsPreviewForRetry() async throws {
+        let database = try AppDatabase(path: ":memory:")
+        let repo = SQLiteVocabularyRepository(database: database, onChange: {})
+        try await database.perform { handle in
+            try database.exec(handle, "CREATE TRIGGER reject_capture BEFORE INSERT ON vocabulary_entries BEGIN SELECT RAISE(ABORT, 'Test disk failure'); END;")
+        }
+        let model = QuickAddModel(repository: repo, translation: TranslationService(selectedID: "unavailable"))
+        XCTAssertTrue(model.prepareClipboard(word: "plight", result: cachedPlight()))
+        let first = await model.submit()
+        XCTAssertFalse(first)
+        XCTAssertEqual(model.preview, cachedPlight())
+        XCTAssertFalse(model.isSaving)
+        XCTAssertNil(model.lastSavedWord)
+        XCTAssertTrue(model.errorMessage?.contains("Test disk failure") == true)
+        try await database.perform { handle in try database.exec(handle, "DROP TRIGGER reject_capture;") }
+        let retry = await model.submit()
+        XCTAssertTrue(retry)
+        let entries = try await repo.activeEntries()
+        XCTAssertEqual(entries.count, 1)
+    }
     @MainActor
     func testCapturePreferencesStartPrivateAndPersistExplicitChoices() throws {
         let suite = "capture-tests-" + UUID().uuidString
