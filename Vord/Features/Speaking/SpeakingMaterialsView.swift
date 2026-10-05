@@ -8,13 +8,21 @@ struct ContextWorkspaceView: View {
     @State private var section = "Materials"
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Picker("Examples section", selection: $section) {
-                Text("Materials").tag("Materials")
-                Text("Generate examples").tag("Generate")
-            }.pickerStyle(.segmented).frame(width: 310).padding(.horizontal, 28).padding(.top, 20).padding(.bottom, 14)
+            HStack(spacing: 4) {
+                sectionButton("Speaking", value: "Materials")
+                sectionButton("Generate examples", value: "Generate")
+                Spacer(minLength: 0)
+            }.padding(.horizontal, 28).padding(.top, 18).padding(.bottom, 14)
             if section == "Materials" { SpeakingMaterialsView(library: library) }
             else { ContextView(onSettings: onSettings) }
         }
+    }
+    private func sectionButton(_ title: String, value: String) -> some View {
+        Button { section = value } label: {
+            Text(title).font(AppTypography.button).lineLimit(1).fixedSize()
+                .padding(.horizontal, 14).frame(height: 34)
+                .background(section == value ? AppColors.inputSurface : .clear, in: RoundedRectangle(cornerRadius: 9))
+        }.buttonStyle(.plain).accessibilityAddTraits(section == value ? .isSelected : [])
     }
 }
 
@@ -34,33 +42,54 @@ struct SpeakingMaterialsView: View {
     @EnvironmentObject private var dependencies: AppDependencies
     @Environment(\.vordLayout) private var layout
     @State private var search = ""
-    @State private var scope = "All materials"
+    @State private var scope = "My vocabulary"
     @State private var part = SpeakingMaterial.Part.any
     @State private var selectedID: UUID?
     @State private var sheet: MaterialSheet?
     @State private var error: String?
+    @State private var entries: [VocabularyEntry] = []
+    @State private var workspaceMaterials: [SpeakingMaterial] = []
+    private func rebuildWorkspace() {
+        let saved = library.materials
+        let ownPrompts = SpeakingConnections.studyPrompts(materials: saved, entries: entries, limit: 5)
+        let ids = Set(saved.map(\.id))
+        workspaceMaterials = ownPrompts.filter { !ids.contains($0.id) } + saved
+    }
     private var filtered: [SpeakingMaterial] {
         let revisit = scope == "To revisit" ? library.revisitIDs : []
         let personalIDs = Set(library.personal.map(\.id))
-        return library.materials.filter { item in
-            (scope == "All materials" || (scope == "To revisit" ? revisit.contains(item.id)
-                : (scope == "My materials" ? personalIDs.contains(item.id) : item.source.hasPrefix("Starter pack"))))
-            && (part == .any || item.part == part || item.part == .any)
-            && (search.trimmed.isEmpty || [item.title, item.english, item.chinese, item.topic, item.prompt].contains { $0.localizedCaseInsensitiveContains(search.trimmed) })
+        return workspaceMaterials.filter { item in
+            let inCollection: Bool
+            switch scope {
+            case "My vocabulary": inCollection = entries.isEmpty || !SpeakingConnections.linkedEntries(item, entries: entries).isEmpty
+            case "My materials": inCollection = personalIDs.contains(item.id)
+            case "To revisit": inCollection = revisit.contains(item.id)
+            case "Starter pack": inCollection = item.source.hasPrefix("Starter pack")
+            default: inCollection = true
+            }
+            return inCollection && (part == .any || item.part == part || item.part == .any)
+            && (search.trimmed.isEmpty || ([item.title, item.english, item.chinese, item.topic, item.prompt]
+                + SpeakingConnections.keywords(item, entries: entries).flatMap { [$0.english, $0.chinese] }).contains { $0.localizedCaseInsensitiveContains(search.trimmed) })
         }
     }
-    private var selected: SpeakingMaterial? { library.materials.first { $0.id == selectedID } }
+    private var selected: SpeakingMaterial? { workspaceMaterials.first { $0.id == selectedID } }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             ViewThatFits(in: .horizontal) {
                 HStack { searchField; filters; actions }
-                VStack(alignment: .leading, spacing: 10) { searchField; HStack { filters; Spacer(); actions } }
+                VStack(alignment: .leading, spacing: 10) {
+                    searchField
+                    ViewThatFits(in: .horizontal) {
+                        HStack { filters; Spacer(); actions }
+                        VStack(alignment: .leading, spacing: 8) { filters; actions }
+                    }
+                }
             }
             if let warning = library.warning { Text(warning).foregroundStyle(AppColors.destructive) }
             if let error { Text(error).foregroundStyle(AppColors.destructive) }
             if layout.usesColumns {
                 HStack(alignment: .top, spacing: 24) {
-                    materialList.frame(width: 310)
+                    materialList.frame(width: 260)
                     Rectangle().fill(AppColors.subtleBorder).frame(width: 1)
                     detail.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
@@ -77,18 +106,20 @@ struct SpeakingMaterialsView: View {
             case .importing: MaterialImportView(library: library)
             }
         }
+        .task { await refreshEntries(); reconcileSelection() }
+        .onReceive(NotificationCenter.default.publisher(for: .vordLibraryDidChange)) { _ in Task { await refreshEntries() } }
         .onChange(of: search) { _, _ in reconcileSelection() }
         .onChange(of: scope) { _, _ in reconcileSelection() }
         .onChange(of: part) { _, _ in reconcileSelection() }
         .onChange(of: library.attempts.count) { _, _ in reconcileSelection() }
-        .onChange(of: library.personal) { _, _ in reconcileSelection() }
+        .onChange(of: library.personal) { _, _ in rebuildWorkspace(); reconcileSelection() }
     }
     private var searchField: some View {
         TextField("Search materials", text: $search).textFieldStyle(.roundedBorder).frame(minWidth: 130)
     }
     private var filters: some View {
         HStack {
-            MenuSelect(name: "Collection", selection: $scope, choices: ["All materials", "My materials", "To revisit", "Starter pack"], label: { $0 })
+            MenuSelect(name: "Collection", selection: $scope, choices: ["My vocabulary", "All materials", "My materials", "To revisit", "Starter pack"], label: { $0 })
             MenuSelect(name: "Speaking part", selection: $part, choices: SpeakingMaterial.Part.allCases, label: { $0.rawValue })
         }
     }
@@ -114,6 +145,11 @@ struct SpeakingMaterialsView: View {
                                 Spacer(minLength: 4)
                                 Text(item.part == .any ? item.kind.rawValue.capitalized : item.part.rawValue)
                             }.font(AppTypography.tertiary).foregroundStyle(AppColors.secondaryText)
+                            let links = SpeakingConnections.linkedEntries(item, entries: entries)
+                            if !links.isEmpty {
+                                Text(links.prefix(3).map(\.english).joined(separator: " · "))
+                                    .font(AppTypography.tertiary).foregroundStyle(AppColors.secondaryText).lineLimit(1)
+                            }
                         }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
                             .background(selectedID == item.id ? AppColors.inputSurface : .clear, in: RoundedRectangle(cornerRadius: 9))
                             .contentShape(Rectangle())
@@ -132,11 +168,17 @@ struct SpeakingMaterialsView: View {
                         SubtleButton(title: "Edit") { sheet = .edit(item) }
                         PrimaryButton(title: "Practise") { sheet = .practice(item) }
                     }
-                    if !item.prompt.isEmpty { Text(item.prompt).font(AppTypography.headline).textSelection(.enabled) }
-                    DictionaryText(item.english, translation: dependencies.translation, repository: dependencies.repository, fontSize: 21, lineSpacing: 5)
-                    SpeechButton(text: item.english)
-                    if !item.chinese.isEmpty { Text(item.chinese).font(AppTypography.body).foregroundStyle(AppColors.secondaryText).textSelection(.enabled) }
-                    if !item.notes.isEmpty { Hairline(); Text(item.notes).font(AppTypography.body).textSelection(.enabled) }
+                    if !item.prompt.isEmpty { Text(item.prompt).font(AppTypography.ui(size: 20, weight: .medium)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                    Hairline()
+                    DictionaryText(item.english, translation: dependencies.translation, repository: dependencies.repository, fontSize: 19, lineSpacing: 6)
+                    HStack(alignment: .top, spacing: 12) {
+                        SpeechButton(text: item.english)
+                        if !item.chinese.isEmpty { Text(item.chinese).font(AppTypography.body).foregroundStyle(AppColors.secondaryText).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                    }
+                    SpeakingVocabularyView(material: item, entries: entries) { Task { await refreshEntries() } }
+                    if !item.notes.isEmpty {
+                        DisclosureGroup("Usage & transfer") { Text(item.notes).font(AppTypography.body).textSelection(.enabled).padding(.top, 8) }
+                    }
                     HStack {
                         Text(item.source).font(AppTypography.tertiary).foregroundStyle(AppColors.tertiaryText)
                         Spacer()
@@ -161,7 +203,7 @@ struct SpeakingMaterialsView: View {
                             }
                         }
                     }
-                }.padding(.trailing, 10)
+                }.frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 12)
             }
         } else {
             VStack(alignment: .leading, spacing: 10) {
@@ -171,7 +213,17 @@ struct SpeakingMaterialsView: View {
         }
     }
     private func reconcileSelection() {
-        if !filtered.contains(where: { $0.id == selectedID }) { selectedID = nil }
+        if !filtered.contains(where: { $0.id == selectedID }) { selectedID = filtered.first?.id }
+    }
+    private func refreshEntries() async {
+        do {
+            let all = try await dependencies.repository.activeEntries()
+            let dueIDs = Set(try await dependencies.repository.dueCards(now: Date(), limit: 240).map { $0.entry.id })
+            entries = all.filter { dueIDs.contains($0.id) } + all.filter { !dueIDs.contains($0.id) }
+            rebuildWorkspace()
+            reconcileSelection()
+        }
+        catch { self.error = error.localizedDescription }
     }
     private func discuss(_ item: SpeakingMaterial) {
         dependencies.agent.appendToDraft("请围绕这份口语素材问我一个问题，等我回答后指出最值得改的一处表达，并让我换一个场景再说一次。\n问题：\(item.prompt)\n参考：\(item.english)\n使用提示：\(item.notes)")
@@ -204,6 +256,9 @@ private struct MaterialEditor: View {
                         TextField("Topic", text: $material.topic).textFieldStyle(.roundedBorder)
                     }
                     LineField(title: "Question or situation", text: $material.prompt)
+                    LineField(title: "Words & phrases · one per line: English = Chinese", text: Binding(
+                        get: { SpeakingConnections.keywordText(SpeakingConnections.expressions(material)) },
+                        set: { material.keywords = SpeakingConnections.parseKeywords($0) }), multiline: true)
                     Text("English").font(AppTypography.caption)
                     TextEditor(text: $material.english).frame(height: 140).font(AppTypography.body).accessibilityLabel("Material English")
                     LineField(title: "Chinese", text: $material.chinese, multiline: true)

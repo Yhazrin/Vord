@@ -43,7 +43,7 @@ enum AppTab: String, CaseIterable, Identifiable {
         case .review: return "Review"
         case .dictation: return "Dictation"
         case .library: return "Library"
-        case .context: return "Examples"
+        case .context: return "Speaking"
         case .agent: return "Companion"
         case .settings: return "Settings"
         }

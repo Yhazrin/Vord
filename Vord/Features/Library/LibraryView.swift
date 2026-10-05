@@ -393,6 +393,7 @@ struct WordDetailView: View {
     @State private var systemDefinition: String?
     @State private var saving = false
     @State private var error: String?
+    @State private var speakingMaterial: SpeakingMaterial?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -429,6 +430,7 @@ struct WordDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task { await load() }
+        .sheet(item: $speakingMaterial) { material in SpeakingPracticeView(library: dependencies.speaking, material: material) }
         .alert("Delete this word?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) {
                 Task { await delete() }
@@ -514,6 +516,9 @@ struct WordDetailView: View {
                 }
                 .padding(.top, AppSpacing.xxl)
             }
+            SpeakingNextSteps(materials: SpeakingConnections.studyPrompts(materials: dependencies.speaking.materials,
+                entries: [entry], limit: 2), entries: [entry], title: "Use in speaking") { speakingMaterial = $0 }
+                .padding(.top, AppSpacing.lg)
             if let systemDefinition, !systemDefinition.isEmpty {
                 LearningCard {
                     SectionHeader(title: "macOS Dictionary", detail: "From dictionaries enabled on this Mac")

@@ -129,15 +129,17 @@ struct ReviewView: View {
     var onExit: () -> Void
 
     var body: some View {
-        ReviewSession(model: dependencies.reviewModel(), onExit: onExit)
+        ReviewSession(model: dependencies.reviewModel(), speaking: dependencies.speaking, onExit: onExit)
     }
 }
 
 private struct ReviewSession: View {
     @EnvironmentObject private var dependencies: AppDependencies
     @ObservedObject var model: ReviewViewModel
+    @ObservedObject var speaking: SpeakingLibrary
     var onExit: () -> Void
     @State private var monitor: Any?
+    @State private var speakingMaterial: SpeakingMaterial?
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @Environment(\.vordLayout) private var layout
 
@@ -146,6 +148,7 @@ private struct ReviewSession: View {
             .task { await model.load() }
             .onAppear { installMonitor() }
             .onDisappear { removeMonitor() }
+            .sheet(item: $speakingMaterial) { item in SpeakingPracticeView(library: speaking, material: item) }
     }
 
     @ViewBuilder
@@ -175,6 +178,10 @@ private struct ReviewSession: View {
                                 detail: "\(model.roundSummary.practicedCount) words practiced · \(model.attempts) answers")
                             roundResults
                             StudyProgress(completed: model.completed, total: model.total)
+                            let words = model.roundSummary.recalled + model.roundSummary.revisit
+                            SpeakingNextSteps(materials: SpeakingConnections.studyPrompts(materials: speaking.materials,
+                                entries: words, revisitIDs: speaking.revisitIDs, limit: 2), entries: words,
+                                title: "From recall to speaking") { speakingMaterial = $0 }
                         } else {
                             EmptyLearningState(symbol: "checkmark.seal", title: "No cards due",
                                 detail: "No words are due in this review mode.")
@@ -209,6 +216,10 @@ private struct ReviewSession: View {
                                 repository: dependencies.repository, fontSize: 16,
                                 color: AppColors.secondaryText, alignment: .center)
                                 .frame(maxWidth: 460)
+                        }
+                        if model.showAnswer,
+                           let material = SpeakingConnections.studyPrompts(materials: speaking.materials, entries: [card.entry], limit: 1).first {
+                            QuietButton(title: "Use \(card.entry.english) in an answer") { speakingMaterial = material }
                         }
                     }
                     .frame(maxWidth: .infinity, minHeight: layout.studyHeight)
@@ -338,6 +349,7 @@ private struct ReviewSession: View {
     }
 
     private func handle(_ event: NSEvent) -> Bool {
+        if speakingMaterial != nil { return false }
         if NSApp.keyWindow?.identifier?.rawValue == "vord.dictionaryPopover" { return false }
         if NSApp.keyWindow?.firstResponder is DictionaryNSTextView { return false }
         if NSApp.keyWindow is NSPanel {

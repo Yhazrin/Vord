@@ -7,6 +7,7 @@ final class TodayViewModel: ObservableObject {
     @Published var totalWords = 0
     @Published var activity: StudyActivity?
     @Published var nextDue: Date?
+    @Published var speakingWords: [VocabularyEntry] = []
     @Published var error: String?
     @Published private(set) var round = StudyRound(entryIDs: [])
     var greeting: String {
@@ -24,6 +25,11 @@ final class TodayViewModel: ObservableObject {
             recent = try await repository.recentEntries(limit: 5)
             let snapshot = try await repository.exportSnapshot()
             let activeIDs = Set(snapshot.entries.filter { !$0.archived }.map(\.id))
+            let dueIDs = Set(snapshot.reviewStates.filter { $0.directions.contains { $0.dueAt <= now } }.map(\.entryID))
+            let todayIDs = Set(snapshot.reviewLogs.filter { Calendar.current.isDate($0.reviewedAt, inSameDayAs: now) }.map(\.entryID))
+            let active = snapshot.entries.filter { !$0.archived }
+            speakingWords = active.filter { dueIDs.contains($0.id) || todayIDs.contains($0.id) }
+            if speakingWords.isEmpty { speakingWords = recent.filter { !$0.archived } }
             totalWords = activeIDs.count
             nextDue = snapshot.reviewStates.filter { activeIDs.contains($0.entryID) }
                 .flatMap(\.directions).map(\.dueAt).filter { $0 > now }.min()
@@ -54,6 +60,7 @@ struct TodayView: View {
                 overview
                 Hairline()
                 dailyPractice
+                DailySpeakingBridge(library: dependencies.speaking, entries: model.speakingWords)
                 if let activity = model.activity { StudyCalendar(activity: activity) }
                 Hairline()
                 libraryBand
@@ -271,5 +278,16 @@ struct TodayView: View {
                 .animation(AppMotion.feedback(reducedMotion), value: count)
         }
         .padding(.vertical, 8)
+    }
+}
+
+private struct DailySpeakingBridge: View {
+    @ObservedObject var library: SpeakingLibrary
+    var entries: [VocabularyEntry]
+    @State private var selected: SpeakingMaterial?
+    var body: some View {
+        SpeakingNextSteps(materials: SpeakingConnections.studyPrompts(materials: library.materials,
+            entries: entries, revisitIDs: library.revisitIDs, limit: 2), entries: entries, title: "Use today's words") { selected = $0 }
+            .sheet(item: $selected) { material in SpeakingPracticeView(library: library, material: material) }
     }
 }

@@ -44,7 +44,7 @@ struct VordApp: App {
                 Button("Library") { navigate(.library) }.keyboardShortcut("2")
                 Button("Review") { navigate(.review) }.keyboardShortcut("3")
                 Button("Dictation") { navigate(.dictation) }.keyboardShortcut("4")
-                Button("Examples") { navigate(.context) }.keyboardShortcut("5")
+                Button("Speaking") { navigate(.context) }.keyboardShortcut("5")
                 Button("Study Companion") { navigate(.agent) }.keyboardShortcut("6")
             }
         }

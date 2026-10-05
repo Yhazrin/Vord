@@ -40,6 +40,9 @@ struct MaterialImportView: View {
                                     TextField("Chinese", text: field(index, \.chinese), axis: .vertical).lineLimit(1...3)
                                     TextField("Question", text: field(index, \.prompt), axis: .vertical).lineLimit(1...3)
                                     TextField("Usage or correction", text: field(index, \.notes), axis: .vertical).lineLimit(1...4)
+                                    TextField("Words & phrases · English = Chinese", text: Binding(
+                                        get: { SpeakingConnections.keywordText(SpeakingConnections.expressions(self.pack?.materials[index] ?? item)) },
+                                        set: { self.pack?.materials[index].keywords = SpeakingConnections.parseKeywords($0) }), axis: .vertical).lineLimit(1...5)
                                     HStack {
                                         MenuSelect(name: "Kind", selection: Binding(get: { self.pack?.materials[index].kind ?? .sentence }, set: { self.pack?.materials[index].kind = $0 }), choices: SpeakingMaterial.Kind.allCases, label: { $0.rawValue.capitalized })
                                         MenuSelect(name: "Part", selection: Binding(get: { self.pack?.materials[index].part ?? .any }, set: { self.pack?.materials[index].part = $0 }), choices: SpeakingMaterial.Part.allCases, label: { $0.rawValue })

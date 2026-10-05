@@ -21,11 +21,14 @@ struct SpeakingMaterial: Codable, Identifiable, Equatable, Sendable {
     var sourceExcerpt: String?
     var createdAt = Date()
     var archived = false
+    // Optional for compatibility with existing personal files and lesson packs.
+    var keywords: [SpeakingKeyword]?
 
     var isValid: Bool {
         !title.trimmed.isEmpty && title.count <= 200 && !english.trimmed.isEmpty && english.range(of: "[A-Za-z]", options: .regularExpression) != nil && english.count <= 12000
         && chinese.count <= 12000 && prompt.count <= 2000 && notes.count <= 6000
         && topic.count <= 200 && source.count <= 300 && (sourceExcerpt?.count ?? 0) <= 12000
+        && (keywords?.count ?? 0) <= 24 && (keywords?.allSatisfy(\.isValid) ?? true)
     }
     var duplicateKey: String {
         [english, prompt].map { $0.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ") }.joined(separator: "\n")
@@ -70,6 +73,7 @@ struct SpeakingAttempt: Codable, Identifiable, Equatable {
     var seconds: Int
     var referenceRevealed: Bool
     var createdAt = Date()
+    var practicedEntryIDs: [UUID]?
 }
 
 /// Personal materials, original uploads and self-reported speaking practice stay on disk.
@@ -168,7 +172,8 @@ final class SpeakingLibrary: ObservableObject {
         }
         let selected = materials.sorted { lhs, rhs in
             func score(_ item: SpeakingMaterial) -> Int {
-                let haystack = (item.title + " " + item.topic + " " + item.prompt + " " + item.chinese).lowercased()
+                let haystack = ([item.title, item.topic, item.prompt, item.chinese, item.english]
+                    + SpeakingConnections.expressions(item).flatMap { [$0.english, $0.chinese] }).joined(separator: " ").lowercased()
                 return terms.filter { haystack.contains($0) }.count
             }
             return score(lhs) > score(rhs)
